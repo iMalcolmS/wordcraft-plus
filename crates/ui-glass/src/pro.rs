@@ -79,19 +79,9 @@ fn binder_row(ui: &mut Ui, t: &Tokens, text: &str, indent: f32, dot: Option<egui
 
 /// The Binder: the whole project in one tree. Manuscript sections, open documents, notes and the
 /// Scratchpad.
-pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
-    let mut open = expanded;
-    egui::Panel::left("glass_binder")
-        .exact_size(270.0)
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 14, right: 0, top: 2, bottom: 10 }))
-        .show_collapsible(ui, &mut open, |ui| {
-            let rect = ui.max_rect();
-            ui.painter().add(glass_shape(rect, radius::PANEL, t));
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(12.0)).layout(egui::Layout::top_down(egui::Align::Min)));
-            child.set_clip_rect(rect);
-            let ui = &mut child;
+pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+    {
+        {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Binder").font(semibold(15.0)).color(t.text));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -165,7 +155,8 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
                     g.glass.panel = if on { None } else { Some(Panel::Scratchpad) };
                 }
             });
-        });
+        }
+    }
 }
 
 /// Which sections the Corkboard shows: chapters (the top level) or every section.
@@ -443,26 +434,13 @@ pub fn outliner(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
 }
 
 /// The right-hand panel for Pro tools: the Scratchpad, Pacing, or a note.
-pub fn side(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
-    let mut open = expanded;
+pub fn side(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     let kind = g.glass.panel.filter(|p| !p.is_versions()).or(g.glass.last_side);
-    egui::Panel::right("glass_pro_side")
-        .exact_size(330.0)
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 0, right: 14, top: 2, bottom: 10 }))
-        .show_collapsible(ui, &mut open, |ui| {
-            let rect = ui.max_rect();
-            ui.painter().add(glass_shape(rect, radius::PANEL, t));
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(16.0)).layout(egui::Layout::top_down(egui::Align::Min)));
-            child.set_clip_rect(rect);
-            child.set_max_width(rect.width() - 32.0);
-            match kind {
-                Some(Panel::Pacing) => pacing(g, &mut child, t),
-                Some(Panel::Note(id)) => note(g, &mut child, t, id),
-                _ => scratchpad(g, &mut child, t),
-            }
-        });
+    match kind {
+        Some(Panel::Pacing) => pacing(g, ui, t),
+        Some(Panel::Note(id)) => note(g, ui, t, id),
+        _ => scratchpad(g, ui, t),
+    }
 }
 
 fn panel_title(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, title: &str) {

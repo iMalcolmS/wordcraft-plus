@@ -30,6 +30,15 @@ pub struct Docs {
     pub confirm_close: Option<usize>,
     /// When the open document last changed (for the fade-in).
     pub switched_at: f64,
+    /// The tab under the pointer and since when (its preview shows after a moment).
+    hover: Option<(u64, f64)>,
+}
+
+impl Docs {
+    /// The document waiting in tab `i` (not the open one).
+    pub fn stash_mut(&mut self, i: usize) -> Option<&mut Session> {
+        self.tabs.get_mut(i).and_then(|t| t.stash.as_mut()).map(|(s, _)| s)
+    }
 }
 
 /// The file's name without its extension, else the document's title, else "Untitled".
@@ -257,6 +266,7 @@ pub fn strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
             let room = (full.max.x - x - 40.0).max(80.0);
             let tab_w = (room / n.max(1) as f32).clamp(96.0, 230.0);
             let mut action: Option<(usize, bool)> = None;
+            let mut hovered: Option<(usize, u64, Rect)> = None;
             for i in 0..n {
                 let r = Rect::from_min_size(pos2(x, y), vec2(tab_w - 4.0, h));
                 if r.max.x > full.max.x - 36.0 {
@@ -294,9 +304,12 @@ pub fn strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 } else if dirty {
                     ui.painter().circle_filled(close.center(), 3.5, t.text_dim);
                 }
+                if resp.hovered() && !cresp.hovered() {
+                    hovered = Some((i, uid, r));
+                }
                 if cresp.on_hover_text("Close tab").clicked() {
                     action = Some((i, true));
-                } else if resp.on_hover_text(title).clicked() {
+                } else if resp.clicked() {
                     action = Some((i, false));
                 }
                 x = r.max.x + 4.0;
@@ -312,12 +325,78 @@ pub fn strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
             if presp.clicked() {
                 g.new_tab(Session::new(wordcraft_engine::doc::Document::new()));
             }
+            let now = ui.input(|i| i.time);
+            g.docs.hover = match (hovered, g.docs.hover) {
+                (Some((_, uid, _)), Some((h, since))) if h == uid => Some((h, since)),
+                (Some((_, uid, _)), _) => Some((uid, now)),
+                (None, _) => None,
+            };
+            if let (Some((i, _, r)), Some((_, since))) = (hovered, g.docs.hover)
+                && action.is_none()
+            {
+                preview(g, ui.ctx(), t, i, r, now - since);
+            }
             match action {
                 Some((i, true)) => g.close_tab(i, false),
                 Some((i, false)) => g.switch_to(i),
                 None => {}
             }
         });
+}
+
+/// A tab's hover preview: a live thumbnail of the page its document is on, its name and state.
+/// It appears after a short pause and fades and rises in, as Safari's tab previews do.
+fn preview(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens, i: usize, tab: Rect, hovered_for: f64) {
+    const DELAY: f64 = 0.35;
+    if hovered_for < DELAY {
+        ctx.request_repaint_after(std::time::Duration::from_millis(60));
+        return;
+    }
+    let a = (((hovered_for - DELAY) / 0.16) as f32).clamp(0.0, 1.0);
+    let e = 1.0 - (1.0 - a).powi(3);
+    if a < 1.0 {
+        ctx.request_repaint();
+    }
+    let Some((page, pages, words, dirty, name)) = g.tab_session(i).map(|s| (s.page_hint, 0usize, s.word_count(), s.dirty, stem(s))) else { return };
+    let pages =
+        if i == g.docs.active { g.app.session.layout().pages.len() } else { g.docs.stash_mut(i).map(|s| s.layout().pages.len()).unwrap_or(pages) };
+    let ppp = ctx.pixels_per_point();
+    let w = 196.0;
+    let tex = g.thumbnail(ctx, Some(i), page.min(pages.saturating_sub(1)), (w * ppp) as u32);
+    let pos = pos2(tab.min.x, tab.max.y + 8.0 + (1.0 - e) * 6.0);
+    egui::Area::new(egui::Id::new("glass_tab_preview")).order(egui::Order::Tooltip).interactable(false).fixed_pos(pos).show(ctx, |ui| {
+        ui.multiply_opacity(e);
+        let bg = ui.painter().add(egui::Shape::Noop);
+        let inner = egui::Frame::NONE.inner_margin(10).show(ui, |ui| {
+            ui.set_width(w);
+            ui.spacing_mut().item_spacing = vec2(0.0, 6.0);
+            let h = tex.as_ref().map(|x| x.size_vec2()).map(|s| (w * s.y / s.x.max(1.0)).min(260.0)).unwrap_or(w * 1.29);
+            let (r, _) = ui.allocate_exact_size(vec2(w, h), Sense::hover());
+            let shadow = egui::epaint::Shadow { offset: [0, 2], blur: 8, spread: 0, color: t.shadow };
+            ui.painter().add(shadow.as_shape(r, egui::CornerRadius::same(6)));
+            match &tex {
+                Some(tex) => {
+                    // Show the top of the page when it is taller than the card.
+                    let uv_h = (h / (w * tex.size_vec2().y / tex.size_vec2().x.max(1.0))).min(1.0);
+                    let mut mesh = egui::Mesh::with_texture(tex.id());
+                    mesh.add_rect_with_uv(r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, uv_h)), egui::Color32::WHITE);
+                    ui.painter().add(egui::Shape::mesh(mesh));
+                }
+                None => {
+                    ui.painter().rect_filled(r, 6.0, egui::Color32::WHITE);
+                }
+            }
+            ui.painter().rect_stroke(r, 6.0, egui::Stroke::new(0.75, t.edge), egui::StrokeKind::Outside);
+            ui.label(egui::RichText::new(&name).font(semibold(12.5)).color(t.text));
+            let state = if dirty { " · Edited" } else { "" };
+            ui.label(
+                egui::RichText::new(format!("Page {} of {} · {} words{state}", page + 1, pages.max(1), crate::chrome::group_digits(words as i64)))
+                    .font(regular(11.0))
+                    .color(t.text_dim),
+            );
+        });
+        ui.painter().set(bg, crate::tokens::frost_shape(inner.response.rect, 14, t));
+    });
 }
 
 /// "Close without saving?" for a tab with unsaved changes.

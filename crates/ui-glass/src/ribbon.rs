@@ -67,6 +67,11 @@ pub enum Local {
     Pacing,
     Sprint,
     Appearance,
+    /// Reader's Glow: Off → Paragraph → Sentence.
+    Glow,
+    Rhythm,
+    Guides,
+    Handles,
 }
 
 pub enum Item {
@@ -645,6 +650,15 @@ const WRITER: &[Group] = &[
             Item::Glass(Local::Scratchpad, "Scratchpad", "paste"),
             Item::Glass(Local::Typewriter, "Typewriter", "focus"),
             Item::Big(con("Focus", "view.focus", "focus", On::Session(focus_on))),
+        ],
+    },
+    Group {
+        name: "Focus",
+        items: &[
+            Item::Glass(Local::Glow, "Reader's\nGlow", "focus"),
+            Item::Glass(Local::Rhythm, "Rhythm", "wordCount"),
+            Item::Glass(Local::Guides, "Guides", "gridlines"),
+            Item::Glass(Local::Handles, "Block\nHandles", "more"),
         ],
     },
     Group {

@@ -7,21 +7,9 @@ use serde_json::json;
 use wordcraft_engine::doc::{Document, Pos, StoryRef};
 use wordcraft_ui_egui::theme::{medium, regular, semibold};
 
-use crate::tokens::{Tokens, glass_shape, paint_fill, radius};
+use crate::tokens::{Tokens, paint_fill, radius};
 use crate::widgets as w;
 use crate::{AUTO_LABEL, GlassApp, Panel};
-
-/// A side panel's glass card, filling the panel with a margin; `add` lays out its content.
-fn card(ui: &mut Ui, t: &Tokens, add: impl FnOnce(&mut Ui)) {
-    let rect = ui.max_rect();
-    ui.painter().add(glass_shape(rect, radius::PANEL, t));
-    let inner = rect.shrink(14.0);
-    // Content never grows the panel: it is laid out in, and clipped to, the card.
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
-    child.set_clip_rect(rect);
-    child.set_max_width(inner.width());
-    add(&mut child);
-}
 
 /// A header: a title (or a segmented control) and a close button. Returns true when closed.
 fn close_button(ui: &mut Ui, t: &Tokens) -> bool {
@@ -42,15 +30,10 @@ fn row(ui: &mut Ui, t: &Tokens, text: &str, indent: f32, bold: bool, on: bool) -
 }
 
 /// View › Navigation Pane, as glass: the document's headings, or its pages.
-pub fn navigation(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
-    let mut open = expanded;
-    egui::Panel::left("glass_nav")
-        .exact_size(260.0)
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 10, right: 0, top: 2, bottom: 6 }))
-        .show_collapsible(ui, &mut open, |ui| {
-            card(ui, t, |ui| {
+pub fn navigation(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+    {
+        {
+            {
                 ui.horizontal(|ui| {
                     let tabs = ["Headings", "Pages"];
                     let sel = usize::from(g.app.ui.nav_tab == "pages");
@@ -72,8 +55,9 @@ pub fn navigation(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
                         headings(g, ui, t);
                     }
                 });
-            });
-        });
+            }
+        }
+    }
 }
 
 fn headings(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
@@ -119,43 +103,51 @@ fn headings(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
 fn pages(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     let count = g.app.session.layout().pages.len();
     let current = g.app.session.page_hint;
-    let cols = 3;
-    let thumb = vec2(64.0, 84.0);
+    // As many columns as fit the panel's width: narrow panels show one, wide ones three or four.
+    let gap = 12.0;
+    let avail = ui.available_width() - 8.0;
+    let cols = ((avail + gap) / (96.0 + gap)).floor().clamp(1.0, 4.0) as usize;
+    let tw = ((avail - gap * (cols as f32 - 1.0)) / cols as f32).min(150.0);
+    let ppp = ui.ctx().pixels_per_point();
+    let ctx = ui.ctx().clone();
+    ui.add_space(6.0);
     let mut i = 0;
     while i < count {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
-            ui.add_space(6.0);
+            ui.spacing_mut().item_spacing = vec2(gap, 0.0);
+            ui.add_space(4.0);
             for _ in 0..cols {
                 if i >= count {
                     break;
                 }
-                let (r, resp) = ui.allocate_exact_size(thumb + vec2(0.0, 18.0), Sense::click());
-                let page = Rect::from_min_size(r.min, thumb);
-                ui.painter().rect_filled(page, 4.0, t.paper);
-                let stroke = if i == current {
-                    egui::Stroke::new(2.0, t.accent)
-                } else if resp.hovered() {
-                    egui::Stroke::new(1.0, t.text_dim)
-                } else {
-                    egui::Stroke::new(0.75, t.edge)
-                };
-                ui.painter().rect_stroke(page, 4.0, stroke, egui::StrokeKind::Outside);
-                // Lines of text, suggested.
-                for k in 0..7 {
-                    let y = page.min.y + 12.0 + k as f32 * 9.0;
-                    let x1 = if k % 3 == 2 { page.max.x - 24.0 } else { page.max.x - 10.0 };
-                    ui.painter().line_segment([pos2(page.min.x + 10.0, y), pos2(x1, y)], egui::Stroke::new(1.5, t.fill));
+                let tex = g.thumbnail(&ctx, None, i, (tw * ppp) as u32);
+                let th = tex.as_ref().map(|x| tw * x.size_vec2().y / x.size_vec2().x.max(1.0)).unwrap_or(tw * 1.294);
+                let (r, resp) = ui.allocate_exact_size(vec2(tw, th + 20.0), Sense::click());
+                let page = Rect::from_min_size(r.min, vec2(tw, th));
+                let lift = ui.ctx().animate_bool_with_time(resp.id.with("lift"), resp.hovered(), 0.12);
+                let page = page.translate(vec2(0.0, -2.0 * lift));
+                let shadow =
+                    egui::epaint::Shadow { offset: [0, (1.0 + 3.0 * lift) as i8], blur: (4.0 + 8.0 * lift) as u8, spread: 0, color: t.shadow };
+                ui.painter().add(shadow.as_shape(page, egui::CornerRadius::same(4)));
+                match &tex {
+                    Some(tex) => {
+                        ui.painter().image(tex.id(), page, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
+                    }
+                    None => {
+                        ui.painter().rect_filled(page, 4.0, egui::Color32::WHITE);
+                    }
                 }
+                let stroke = if i == current { egui::Stroke::new(2.0, t.accent) } else { egui::Stroke::new(0.75, t.edge) };
+                ui.painter().rect_stroke(page, 4.0, stroke, egui::StrokeKind::Outside);
                 let c = if i == current { t.accent } else { t.text_dim };
-                ui.painter().text(pos2(page.center().x, page.max.y + 9.0), Align2::CENTER_CENTER, (i + 1).to_string(), medium(11.0), c);
+                ui.painter().text(pos2(page.center().x, r.max.y - 8.0), Align2::CENTER_CENTER, (i + 1).to_string(), medium(11.0), c);
                 if resp.on_hover_text(format!("Page {}", i + 1)).clicked() {
                     w::run(ui, &mut g.app, "edit.goto", json!({"page": i + 1}));
                 }
                 i += 1;
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(10.0);
     }
 }
 
@@ -216,15 +208,10 @@ fn diff_preview(ui: &mut Ui, t: &Tokens, old: &Document, now: &Document) {
 }
 
 /// Snapshots and Version History.
-pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
-    let mut open = expanded;
-    egui::Panel::right("glass_versions")
-        .exact_size(310.0)
-        .resizable(false)
-        .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 0, right: 10, top: 2, bottom: 6 }))
-        .show_collapsible(ui, &mut open, |ui| {
-            card(ui, t, |ui| {
+pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+    {
+        {
+            {
                 ui.horizontal(|ui| {
                     let sel = usize::from(g.glass.panel.filter(|p| p.is_versions()).or(g.glass.last_panel) == Some(Panel::History));
                     if let Some(i) = w::segmented(ui, t, &["Snapshots", "History"], sel, 30.0) {
@@ -243,8 +230,9 @@ pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
                     None if g.glass.last_panel == Some(Panel::History) => history(g, ui, t),
                     _ => snapshots(g, ui, t),
                 }
-            });
-        });
+            }
+        }
+    }
 }
 
 fn hint(ui: &mut Ui, t: &Tokens, text: &str) {

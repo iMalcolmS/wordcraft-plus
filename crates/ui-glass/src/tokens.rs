@@ -157,6 +157,9 @@ pub struct Tokens {
     pub canvas: Color32,
     /// Glass fill, already tinted by [`Material::tint`].
     pub glass: Color32,
+    /// Frosted glass for panels that float over the page: dense enough that the text behind
+    /// reads as soft shapes, not words.
+    pub frost: Color32,
     /// Inner rim (specular highlight) of glass shapes.
     pub rim: Color32,
     /// Thin outer edge of glass shapes.
@@ -193,6 +196,11 @@ impl Tokens {
                 dark,
                 canvas: m.canvas.color(true),
                 glass,
+                frost: if m.reduce_transparency {
+                    Color32::from_rgb(0x26, 0x26, 0x2A)
+                } else {
+                    Color32::from_rgba_unmultiplied(0x2A, 0x2A, 0x2F, alpha(0.80 + tint * 0.14))
+                },
                 rim: Color32::from_rgba_unmultiplied(255, 255, 255, if m.reduce_transparency { 0 } else { 30 }),
                 edge: Color32::from_rgba_unmultiplied(0, 0, 0, if m.reduce_transparency { 255 } else { 150 }),
                 shadow: Color32::from_rgba_unmultiplied(0, 0, 0, 110),
@@ -219,6 +227,11 @@ impl Tokens {
                 dark,
                 canvas: m.canvas.color(false),
                 glass,
+                frost: if m.reduce_transparency {
+                    Color32::from_rgb(0xF4, 0xF4, 0xF6)
+                } else {
+                    Color32::from_rgba_unmultiplied(0xF7, 0xF7, 0xF9, alpha(0.78 + tint * 0.15))
+                },
                 rim: Color32::from_rgba_unmultiplied(255, 255, 255, if m.reduce_transparency { 0 } else { 230 }),
                 edge: Color32::from_rgba_unmultiplied(0, 0, 0, if m.reduce_transparency { 60 } else { 34 }),
                 shadow: Color32::from_rgba_unmultiplied(0, 0, 0, 28),
@@ -268,6 +281,34 @@ fn glass_shape_with(rect: Rect, r: u8, t: &Tokens, fill: Color32) -> egui::Shape
     egui::Shape::Vec(vec![
         shadow.as_shape(rect, cr).into(),
         egui::Shape::rect_filled(rect, cr, fill),
+        egui::Shape::rect_stroke(rect.shrink(0.5), cr, Stroke::new(1.0, t.rim), StrokeKind::Inside),
+        egui::Shape::rect_stroke(rect, cr, Stroke::new(0.75, t.edge), StrokeKind::Outside),
+    ])
+}
+
+/// Frosted glass floating over the page: a deeper shadow, the frost fill, a bright rim, and a
+/// faint sheen across the top, as light catches a pane.
+pub fn frost_shape(rect: Rect, r: u8, t: &Tokens) -> egui::Shape {
+    let cr = corner(r, rect);
+    let shadow = Shadow { offset: [0, 10], blur: 34, spread: 0, color: t.shadow.gamma_multiply(1.4) };
+    // Inset by the corner radius so the sheen never pokes past the rounded corners.
+    let inset = f32::from(cr.nw).min(rect.width() / 2.0);
+    let sheen = Rect::from_min_max(
+        egui::pos2(rect.min.x + inset, rect.min.y + 1.0),
+        egui::pos2(rect.max.x - inset, rect.min.y + 64.0_f32.min(rect.height())),
+    );
+    let mut mesh = egui::Mesh::default();
+    let top = Color32::from_white_alpha(if t.dark { 10 } else { 70 });
+    mesh.colored_vertex(sheen.left_top(), top);
+    mesh.colored_vertex(sheen.right_top(), top);
+    mesh.colored_vertex(sheen.right_bottom(), Color32::TRANSPARENT);
+    mesh.colored_vertex(sheen.left_bottom(), Color32::TRANSPARENT);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    egui::Shape::Vec(vec![
+        shadow.as_shape(rect, cr).into(),
+        egui::Shape::rect_filled(rect, cr, t.frost),
+        egui::Shape::mesh(mesh),
         egui::Shape::rect_stroke(rect.shrink(0.5), cr, Stroke::new(1.0, t.rim), StrokeKind::Inside),
         egui::Shape::rect_stroke(rect, cr, Stroke::new(0.75, t.edge), StrokeKind::Outside),
     ])

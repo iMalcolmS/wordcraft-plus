@@ -6,6 +6,7 @@ use serde_json::json;
 use wordcraft_ui_egui::theme::{Animations, Appearance, regular, semibold};
 
 use crate::GlassApp;
+use crate::overlay::Glow;
 use crate::tokens::{Accent, CanvasTone, Tokens, popover_shape};
 use crate::widgets as w;
 
@@ -152,6 +153,54 @@ pub fn show(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
                     let mut on = g.glass.prefs.typewriter;
                     if w::switch(ui, t, &mut on).changed() {
                         g.glass.prefs.typewriter = on;
+                    }
+                });
+                divider(ui, t);
+
+                heading(ui, t, "PANELS");
+                row(ui, t, "Floating panels", |ui| {
+                    let mut on = g.glass.prefs.floating;
+                    if w::switch(ui, t, &mut on).changed() {
+                        g.glass.prefs.floating = on;
+                    }
+                });
+                ui.label(
+                    egui::RichText::new("Side panels float over the page as frosted glass. Drag a panel's inner edge to resize it.")
+                        .font(regular(11.5))
+                        .color(t.text_dim),
+                );
+                if !g.glass.prefs.docks.is_empty() && w::quiet_button(ui, t, "Reset Panel Sizes", None, 28.0).clicked() {
+                    g.glass.prefs.docks.clear();
+                }
+                divider(ui, t);
+
+                heading(ui, t, "WRITING");
+                let glow = match g.glass.prefs.glow {
+                    Glow::Off => 0,
+                    Glow::Paragraph => 1,
+                    Glow::Sentence => 2,
+                };
+                row(ui, t, "Reader's Glow", |ui| {
+                    if let Some(i) = w::segmented(ui, t, &["Off", "Paragraph", "Sentence"], glow, 28.0) {
+                        g.glass.prefs.glow = [Glow::Off, Glow::Paragraph, Glow::Sentence].get(i).copied().unwrap_or(Glow::Off);
+                    }
+                });
+                row(ui, t, "Rhythm marks", |ui| {
+                    let mut on = g.glass.prefs.rhythm;
+                    if w::switch(ui, t, &mut on).changed() {
+                        g.glass.prefs.rhythm = on;
+                    }
+                });
+                row(ui, t, "Layout guides", |ui| {
+                    let mut on = g.glass.prefs.grid;
+                    if w::switch(ui, t, &mut on).changed() {
+                        g.glass.prefs.grid = on;
+                    }
+                });
+                row(ui, t, "Block handles (Writer Pro)", |ui| {
+                    let mut on = g.glass.prefs.handles;
+                    if w::switch(ui, t, &mut on).changed() {
+                        g.glass.prefs.handles = on;
                     }
                 });
                 divider(ui, t);

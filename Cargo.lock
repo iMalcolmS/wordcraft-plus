@@ -5293,6 +5293,7 @@ dependencies = [
  "serde_json",
  "wordcraft-doc",
  "wordcraft-engine",
+ "wordcraft-geom",
  "wordcraft-ui-egui",
 ]
 

@@ -8,7 +8,9 @@
 //! `{"tab": "Insert"}` picks a ribbon tab, `{"words": n}` sets today's words written and
 //! `{"snapshot": "name"}` takes a snapshot and `{"select": i}` selects version `i`;
 //! `{"pro": true}` turns Writer Pro on, `{"home": true}` shows Home, `{"template": "letter"}`
-//! opens a template in a tab and `{"run": "text.insert", "params": {…}}` runs a command. The window is 1440×900 pt at 2× and opens the sample
+//! opens a template in a tab and `{"run": "text.insert", "params": {…}}` runs a command;
+//! `{"prefs": {"glow": "Sentence"}}` merges Glass preferences, and `{"pointer": [x, y]}` moves
+//! the pointer (with `"button": "down" | "up"` it presses or releases there). The window is 1440×900 pt at 2× and opens the sample
 //! document unless the first line is `{"empty": true}`.
 
 use wordcraft_engine::Session;
@@ -80,6 +82,33 @@ fn main() {
                 _ => Local::Typewriter,
             };
             harness.state_mut().toggle(local);
+            step_n(&mut harness, 2);
+        } else if let Some(patch) = l.get("prefs").and_then(|v| v.as_object()) {
+            // Merge keys into Glass's preferences.
+            let g = harness.state_mut();
+            let mut v = serde_json::to_value(&g.glass.prefs).expect("prefs");
+            if let Some(o) = v.as_object_mut() {
+                for (k, x) in patch {
+                    o.insert(k.clone(), x.clone());
+                }
+            }
+            g.glass.prefs = serde_json::from_value(v).expect("prefs");
+            step_n(&mut harness, 2);
+        } else if let Some(p) = l.get("pointer").and_then(|v| v.as_array()) {
+            let pos = egui::pos2(p.first().and_then(|x| x.as_f64()).unwrap_or(0.0) as f32, p.get(1).and_then(|x| x.as_f64()).unwrap_or(0.0) as f32);
+            harness.input_mut().events.push(egui::Event::PointerMoved(pos));
+            step_n(&mut harness, 3);
+            if let Some(btn) = l.get("button").and_then(|v| v.as_str()) {
+                harness.input_mut().events.push(egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: btn == "down",
+                    modifiers: egui::Modifiers::NONE,
+                });
+                step_n(&mut harness, 3);
+            }
+        } else if let Some(tab) = l.get("navtab").and_then(|v| v.as_str()) {
+            harness.state_mut().app.ui.nav_tab = tab.to_string();
             step_n(&mut harness, 2);
         } else if let Some(on) = l.get("pro").and_then(|v| v.as_bool()) {
             harness.state_mut().set_pro(on);

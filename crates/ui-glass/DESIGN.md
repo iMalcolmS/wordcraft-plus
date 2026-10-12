@@ -125,11 +125,35 @@ is missing. File opens the classic Backstage.
 | Focus | Status capsule, View › Immersive | `view.focus`: hides the ribbon and panes. |
 | Split View | Title bar (disabled) | Planned; needs two canvases on one document. |
 
+## Panels
+
+Navigation, Binder, Versions and Writer Pro's side panel share one shell (`src/dock.rs`): a glass
+card that slides in from its edge. Drag its inner edge to make it narrower or wider (a grip fades
+in; each panel has a minimum and maximum, and the width is saved); double-click the edge to
+reset. With **Floating panels** on, panels float over the page as frosted glass — the page keeps
+its full width and stays visible around and faintly beneath them. (egui has no blur, so the frost
+is a dense tint with a sheen, not a real blur.)
+
+Navigation › Pages shows real page thumbnails from the engine's renderer, as many columns as fit.
+Hovering a document tab shows a live thumbnail of the page that document is on, with its page
+count, words and state.
+
+## On the page (`src/overlay.rs`)
+
+| Feature | How it works |
+|---|---|
+| Block handles (Writer Pro) | A grip beside the paragraph under the pointer. Drag: the paragraph fades back, a frosted copy trails the pointer, an accent line glides to where it will land, the page scrolls near its edges; drop moves it (`para.moveUp/Down`, undoable). Click: selects the paragraph. Escape cancels. |
+| Reader's Glow | Off / Paragraph / Sentence. Everything but the lit text fades back; the lit band glides between paragraphs and sentences (animated in page coordinates, so scrolling never lags it). |
+| Pulse | A paragraph glows for a moment when its style changes (by any route) or when it lands after a drag. |
+| Rhythm marks | A thin bar in the left margin per paragraph: green, amber when sentences average over 22 words (or 150+ words), red over 30 (or 220+). Hover for the figures. Words of four letters or more repeated within ten words, or three times in a paragraph, get a gradient underline (English and Portuguese stop words ignored). |
+| Layout guides | The text area's margins, a centre line and a 12 pt baseline grid. |
+
 ## Appearance
 
 View › More Appearance, File › Appearance… or Home: Light / Dark / Automatic, seven accent colours,
 four window tones (Neutral, Warm, Cool, Paper), the glass tint and Reduce Transparency, interface
-size (S/M/L), animations (System/On/Off), dark page, Typewriter mode and Writer Pro. Everything
+size (S/M/L), animations (System/On/Off), dark page, Typewriter mode, floating panels and Reset
+Panel Sizes, Reader's Glow, rhythm marks, layout guides, block handles, and Writer Pro. Everything
 applies live and is saved.
 
 ## Writer Pro
@@ -158,7 +182,11 @@ the preferences (they are not written into the .docx).
 - Typewriter mode fades but doesn't yet keep the caret line centred (needs a scroll hook in the
   canvas).
 - Alt key tips don't draw badges on the Glass ribbon.
-- Not yet in Writer Pro: an AI continuity checker, drag handles on every block, compiling several
+- Magnetic guides while dragging pictures and text boxes need a hook in the canvas (object drags
+  are private to `ui-egui`); the layout guides are shown, but objects don't snap to them yet.
+- Collapsing headings happens inside the canvas, so it isn't animated yet.
+- Block handles move top-level paragraphs; paragraphs in table cells keep their own order.
+- Not yet in Writer Pro: an AI continuity checker, compiling several
   documents into one PDF, citation import (BibTeX/RIS, EndNote) beyond the classic Zotero tab,
   hover previews of cross-references, institutional template checks, and a reviewer response log.
 - On Linux desktops without a file-chooser portal or zenity, the classic app falls back to its own

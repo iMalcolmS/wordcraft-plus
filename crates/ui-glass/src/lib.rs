@@ -22,9 +22,12 @@ pub mod tokens;
 
 mod appearance;
 mod chrome;
+mod dock;
 mod home;
+pub mod overlay;
 mod panels;
 mod pro;
+mod thumbs;
 mod typewriter;
 mod widgets;
 
@@ -97,11 +100,35 @@ pub struct GlassPrefs {
     pub pro: bool,
     /// Writer Pro's Binder is showing.
     pub binder: bool,
+    /// Side panel widths the writer chose, by panel.
+    pub docks: std::collections::BTreeMap<String, f32>,
+    /// Side panels float over the page as frosted glass instead of sitting beside it.
+    pub floating: bool,
+    /// Reader's Glow: dim everything but the paragraph or sentence being written.
+    pub glow: overlay::Glow,
+    /// Margin marks for dense paragraphs and underlines for repeated words.
+    pub rhythm: bool,
+    /// Drag handles beside each paragraph.
+    pub handles: bool,
+    /// Layout guides over the pages: margins, columns and a baseline grid.
+    pub grid: bool,
 }
 
 impl Default for GlassPrefs {
     fn default() -> Self {
-        GlassPrefs { material: Material::default(), typewriter: false, goals: goals::Goals::default(), pro: false, binder: true }
+        GlassPrefs {
+            material: Material::default(),
+            typewriter: false,
+            goals: goals::Goals::default(),
+            pro: false,
+            binder: true,
+            docks: Default::default(),
+            floating: false,
+            glow: overlay::Glow::Off,
+            rhythm: false,
+            handles: true,
+            grid: false,
+        }
     }
 }
 
@@ -146,6 +173,10 @@ pub struct GlassState {
     pub sprint: Option<Sprint>,
     /// The `[[` and `/` menus.
     pub inline: inline::Inline,
+    /// Block handles, Reader's Glow, pulses and rhythm marks on the page.
+    pub overlay: overlay::Overlay,
+    /// Page thumbnails (Navigation › Pages, tab previews).
+    pub(crate) thumbs: thumbs::Thumbs,
 }
 
 /// The Glass application: the WordCraft app plus the Glass chrome and features.
@@ -253,6 +284,10 @@ impl GlassApp {
             Local::Pacing => g.panel == Some(Panel::Pacing),
             Local::Sprint => g.sprint.is_some(),
             Local::Appearance => g.appearance_open,
+            Local::Glow => g.prefs.glow != overlay::Glow::Off,
+            Local::Rhythm => g.prefs.rhythm,
+            Local::Guides => g.prefs.grid,
+            Local::Handles => g.prefs.handles,
         }
     }
 
@@ -290,6 +325,23 @@ impl GlassApp {
             Local::Pacing => self.glass.panel = flip(self.glass.panel, Panel::Pacing),
             Local::Sprint => self.sprint(if self.glass.sprint.is_some() { None } else { Some(25) }),
             Local::Appearance => self.glass.appearance_open = !self.glass.appearance_open,
+            Local::Glow => {
+                use overlay::Glow;
+                self.glass.prefs.glow = match self.glass.prefs.glow {
+                    Glow::Off => Glow::Paragraph,
+                    Glow::Paragraph => Glow::Sentence,
+                    Glow::Sentence => Glow::Off,
+                };
+                let name = match self.glass.prefs.glow {
+                    Glow::Off => "off",
+                    Glow::Paragraph => "on the paragraph",
+                    Glow::Sentence => "on the sentence",
+                };
+                self.app.status(format!("Reader's Glow {name}"));
+            }
+            Local::Rhythm => self.glass.prefs.rhythm = !self.glass.prefs.rhythm,
+            Local::Guides => self.glass.prefs.grid = !self.glass.prefs.grid,
+            Local::Handles => self.glass.prefs.handles = !self.glass.prefs.handles,
         }
     }
 
@@ -382,12 +434,8 @@ impl GlassApp {
         }
         let versions = self.glass.panel.is_some_and(Panel::is_versions);
         let side = self.glass.panel.is_some_and(|p| !p.is_versions()) && self.glass.prefs.pro;
-        panels::versions(self, ui, t, versions && !focus);
-        pro::side(self, ui, t, side && !focus);
         let nav = self.app.session.view.nav_pane;
         let pro = self.glass.prefs.pro;
-        pro::binder(self, ui, t, pro && self.glass.prefs.binder && !focus);
-        panels::navigation(self, ui, t, nav && !focus && !(pro && self.glass.prefs.binder));
         if !focus {
             // The original side panes (Styles, Comments, Clipboard…), except Navigation,
             // which Glass draws itself.
@@ -395,6 +443,12 @@ impl GlassApp {
             panes::show(&mut self.app, ui);
             self.app.session.view.nav_pane = nav;
         }
+        // Where floating panels go: what's left under the toolbar and ribbon.
+        let area = ui.available_rect_before_wrap();
+        dock::show(self, ui, t, &dock::VERSIONS, versions && !focus, area, |g, ui| panels::versions(g, ui, t));
+        dock::show(self, ui, t, &dock::SIDE, side && !focus, area, |g, ui| pro::side(g, ui, t));
+        dock::show(self, ui, t, &dock::BINDER, pro && self.glass.prefs.binder && !focus, area, |g, ui| pro::binder(g, ui, t));
+        dock::show(self, ui, t, &dock::NAVIGATION, nav && !focus && !(pro && self.glass.prefs.binder), area, |g, ui| panels::navigation(g, ui, t));
         let view = self.glass.view;
         let typewriter = ctx.animate_bool_with_time(egui::Id::new("glass_typewriter_fade"), self.glass.prefs.typewriter && view == View::Page, 0.25);
         // A document or view switch fades the new content in.
@@ -411,7 +465,9 @@ impl GlassApp {
                     View::Corkboard if self.glass.prefs.pro => pro::corkboard(self, ui, t),
                     View::Outliner if self.glass.prefs.pro => pro::outliner(self, ui, t),
                     _ => {
+                        overlay::before_canvas(self, ui);
                         canvas::show(&mut self.app, ui);
+                        overlay::show(self, ui, t);
                         if typewriter > 0.0 {
                             typewriter::overlay(&mut self.app, ui, typewriter);
                         }
@@ -443,6 +499,7 @@ impl GlassApp {
         let t = Tokens::new(self.app.ui_is_dark(), self.glass.prefs.material);
         keytips::logic(&mut self.app, &ctx);
         self.tab_shortcuts(&ctx);
+        self.glass.thumbs.budget = thumbs::PER_FRAME;
         if self.app.ui.backstage {
             backstage::show(&mut self.app, ui);
         } else {

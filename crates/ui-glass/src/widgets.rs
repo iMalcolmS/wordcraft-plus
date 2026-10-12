@@ -133,9 +133,11 @@ pub fn segmented(ui: &mut Ui, t: &Tokens, items: &[&str], selected: usize, heigh
     paint_fill(ui.painter(), track, radius::CAPSULE, t.fill);
     let mut x = track.min.x + 3.0;
     let mut clicked = None;
+    // Two controls in one place can share a label ("Off"): tell them apart by all their items.
+    let salt = items.join("|");
     for (i, (label, w)) in items.iter().zip(widths.iter()).enumerate() {
         let r = Rect::from_min_size(pos2(x, track.min.y + 3.0), vec2(*w, height - 6.0));
-        let resp = ui.interact(r, ui.id().with(("segment", *label)), Sense::click());
+        let resp = ui.interact(r, ui.id().with(("segment", &salt, *label)), Sense::click());
         if i == selected {
             paint_pill(ui.painter(), r, t);
         } else if resp.hovered() {
