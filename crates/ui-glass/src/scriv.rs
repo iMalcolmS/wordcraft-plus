@@ -128,10 +128,6 @@ fn disclosure(p: &Painter, c: egui::Pos2, open: bool, color: Color32) {
     p.add(egui::Shape::convex_polygon(pts, color, Stroke::NONE));
 }
 
-pub fn label_color(l: Label) -> Option<Color32> {
-    l.rgb().map(|(r, g, b)| Color32::from_rgb(r, g, b))
-}
-
 // ---------------------------------------------------------------------------------------------
 // Sections and history.
 
@@ -344,14 +340,18 @@ pub fn inspector(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     // Label and status.
     ui.horizontal(|ui| {
         let half = (width - 8.0) / 2.0;
-        let resp = menu_pill(ui, t, card.label.name(), label_color(card.label), half);
-        egui::Popup::menu(&resp).show(|ui| {
-            for l in Label::ALL {
-                if ui.selectable_label(l == card.label, l.name()).clicked() {
-                    g.glass.projects.by_doc.entry(pkey.clone()).or_default().card_mut(&sec.title).label = l;
-                    ui.close();
-                }
+        let project = g.glass.projects.by_doc.entry(pkey.clone()).or_default();
+        let tags = project.tags().to_vec();
+        let tag = project.card_tag(&card);
+        let resp = crate::labels::pill(ui, t, tag.as_ref(), half);
+        egui::Popup::menu(&resp).show(|ui| match crate::labels::menu(ui, t, &tags, card.tag) {
+            Some(crate::labels::Choice::Set(id)) => {
+                let c = g.glass.projects.by_doc.entry(pkey.clone()).or_default().card_mut(&sec.title);
+                c.tag = id;
+                c.label = Label::None;
             }
+            Some(crate::labels::Choice::Edit) => g.glass.labels_open = true,
+            None => {}
         });
         let resp = menu_pill(ui, t, card.status.name(), Some(status_color(card.status, t)), half);
         egui::Popup::menu(&resp).show(|ui| {
@@ -447,6 +447,23 @@ pub fn reference(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, view: RefView) {
             if w::icon_capsule(ui, t, "close", "Close the split", 24.0, false, true).clicked() {
                 g.glass.panel = None;
             }
+            // Side by side, or one above the other.
+            let below = g.glass.prefs.split_below;
+            let (r, resp) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
+            paint_state(ui, r, radius::CAPSULE, &resp, false, t);
+            crate::glyphs::paint(ui.painter(), r.shrink(6.0), if below { "splitV" } else { "splitH" }, t.text_dim);
+            if resp.on_hover_text(if below { "Split side by side" } else { "Split top and bottom" }).clicked() {
+                g.glass.prefs.split_below = !below;
+            }
+            // Swap: the document in the pane comes into the editor, and this one goes to the pane.
+            if let RefView::Document(Some(uid)) = view {
+                let (r, resp) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::click());
+                paint_state(ui, r, radius::CAPSULE, &resp, false, t);
+                crate::glyphs::paint(ui.painter(), r.shrink(6.0), "swap", t.text_dim);
+                if resp.on_hover_text("Swap: edit this document, and see the other one here").clicked() {
+                    swap_split(g, uid);
+                }
+            }
         });
     });
     ui.add_space(8.0);
@@ -467,8 +484,9 @@ pub fn reference(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, view: RefView) {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 for (i, s) in secs.iter().enumerate() {
                     let card = g.glass.projects.by_doc.get(&pkey).map(|p| p.card(&s.title)).unwrap_or_default();
+                    let tag = g.glass.projects.by_doc.get(&pkey).and_then(|p| p.card_tag(&card));
                     let syn = if card.synopsis.trim().is_empty() { s.opening.clone() } else { card.synopsis.clone() };
-                    if item(ui, t, Icon::Doc, &s.title, &syn, cur == Some(i), label_color(card.label)).clicked() {
+                    if item(ui, t, Icon::Doc, &s.title, &syn, cur == Some(i), tag.map(|x| crate::labels::color(x.tint))).clicked() {
                         go = Some(i);
                     }
                 }
@@ -539,6 +557,14 @@ fn kind_icon(k: NoteKind) -> Icon {
     }
 }
 
+/// Swap the split: tab `uid` comes into the editor and the open document goes to the pane.
+pub fn swap_split(g: &mut GlassApp, uid: u64) {
+    let here = g.docs.tabs.get(g.docs.active).map(|t| t.uid);
+    let Some(i) = g.docs.tabs.iter().position(|t| t.uid == uid) else { return };
+    g.switch_to(i);
+    g.glass.panel = Some(Panel::Reference(RefView::Document(here)));
+}
+
 /// A reference row: icon, title (bold), and two lines of synopsis.
 fn item(ui: &mut Ui, t: &Tokens, kind: Icon, title: &str, synopsis: &str, on: bool, label: Option<Color32>) -> egui::Response {
     let width = ui.available_width();
@@ -601,12 +627,15 @@ fn document_view(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, uid: Option<u64>) {
     let ppp = ctx.pixels_per_point();
     let mut go: Option<usize> = None;
     egui::ScrollArea::vertical().id_salt(("glass_split_pages", uid)).auto_shrink([false, false]).show(ui, |ui| {
-        let w = ui.available_width() - 4.0;
+        // Below the page the pane is wide: pages keep a readable width, centred.
+        let full = ui.available_width() - 4.0;
+        let w = full.min(760.0);
+        let pad = ((full - w) / 2.0).max(0.0);
         for p in 0..pages {
             let tex = g.thumbnail(&ctx, tab, p, (w * ppp) as u32);
             let h = tex.as_ref().map(|x| w * x.size_vec2().y / x.size_vec2().x.max(1.0)).unwrap_or(w * 1.294);
-            let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
-            let r = r.shrink2(vec2(2.0, 0.0));
+            let (r, resp) = ui.allocate_exact_size(vec2(full, h), Sense::click());
+            let r = Rect::from_min_size(pos2(r.min.x + pad, r.min.y), vec2(w, h)).shrink2(vec2(2.0, 0.0));
             let shadow = egui::epaint::Shadow { offset: [0, 2], blur: 8, spread: 0, color: t.shadow };
             ui.painter().add(shadow.as_shape(r, egui::CornerRadius::same(3)));
             match &tex {
@@ -700,6 +729,7 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 let has_children = secs.get(i + 1).is_some_and(|n| n.level > s.level);
                 let open = !g.glass.scriv.folded.contains(&s.title);
                 let card = g.glass.projects.by_doc.get(&pkey).map(|p| p.card(&s.title)).unwrap_or_default();
+                let tag = g.glass.projects.by_doc.get(&pkey).and_then(|p| p.card_tag(&card));
                 let depth = 1 + usize::from(s.level.saturating_sub(base).min(5));
                 let (resp, tog) = row(
                     ui,
@@ -709,8 +739,15 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                     &s.title,
                     has_children.then_some(open),
                     cur == Some(i) && g.glass.view == View::Page,
-                    label_color(card.label).or((card.status != Status::ToDo).then(|| status_color(card.status, t))),
+                    if tag.is_some() { None } else { (card.status != Status::ToDo).then(|| status_color(card.status, t)) },
                 );
+                if let Some(tag) = &tag {
+                    crate::labels::mark(
+                        ui.painter(),
+                        Rect::from_center_size(pos2(resp.rect.max.x - 12.0, resp.rect.center().y), vec2(12.0, 12.0)),
+                        tag,
+                    );
+                }
                 if tog {
                     toggle_fold(g, &s.title);
                 } else if resp.clicked() {
@@ -799,16 +836,26 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 g.glass.panel = Some(Panel::Reference(RefView::Notes(kind)));
             }
             if open {
-                let notes: Vec<(u64, String)> = g
+                let notes: Vec<(u64, String, Option<crate::project::Tag>)> = g
                     .glass
                     .projects
                     .by_doc
                     .get(&pkey)
-                    .map(|p| p.notes.iter().filter(|n| n.kind == kind).map(|n| (n.id, n.title.clone())).collect())
+                    .map(|p| {
+                        p.notes.iter().filter(|n| n.kind == kind).map(|n| (n.id, n.title.clone(), n.tag.and_then(|id| p.tag(id)).cloned())).collect()
+                    })
                     .unwrap_or_default();
-                for (id, title) in notes {
+                for (id, title, tag) in notes {
                     let on = g.glass.panel == Some(Panel::Note(id));
-                    if row(ui, t, 1, Icon::Doc, &title, None, on, None).0.clicked() {
+                    let (resp, _) = row(ui, t, 1, Icon::Doc, &title, None, on, None);
+                    if let Some(tag) = &tag {
+                        crate::labels::mark(
+                            ui.painter(),
+                            Rect::from_center_size(pos2(resp.rect.max.x - 12.0, resp.rect.center().y), vec2(12.0, 12.0)),
+                            tag,
+                        );
+                    }
+                    if resp.clicked() {
                         g.glass.panel = if on { None } else { Some(Panel::Note(id)) };
                     }
                 }
@@ -924,8 +971,9 @@ pub fn section_boxes(
         }
         let title = p.plain_text().trim().to_string();
         let card = g.glass.projects.by_doc.get(&pkey).map(|x| x.card(&title)).unwrap_or_default();
-        let tint = label_color(card.label).unwrap_or(t.accent);
-        let strength = if card.label == Label::None { 0.55 } else { 1.0 };
+        let tag = g.glass.projects.by_doc.get(&pkey).and_then(|x| x.card_tag(&card));
+        let tint = tag.as_ref().map(|x| crate::labels::color(x.tint)).unwrap_or(t.accent);
+        let strength = if tag.is_none() { 0.55 } else { 1.0 };
         let rects = rects_of(g, b);
         let Some((page, _)) = rects.first().copied() else { continue };
         let Some(u) = rects.iter().filter(|(p, _)| *p == page).map(|(_, r)| *r).reduce(|a, c| a.union(c)) else { continue };
@@ -940,5 +988,24 @@ pub fn section_boxes(
             let y = bx.min.y - 14.0;
             painter.extend(egui::Shape::dashed_line(&[pos2(left, y), pos2(right, y)], Stroke::new(1.0, t.text_dim.gamma_multiply(0.45)), 6.0, 5.0));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn swapping_the_split_brings_the_other_document_into_the_editor() {
+        use wordcraft_engine::Session;
+        let mut g =
+            crate::GlassApp::new(wordcraft_ui_egui::WordApp::new(Session::new(wordcraft_engine::sample::sample_document()), Default::default()));
+        g.new_tab(Session::new(wordcraft_engine::doc::Document::new()));
+        let (first, second) = (g.docs.tabs[0].uid, g.docs.tabs[1].uid);
+        g.glass.panel = Some(Panel::Reference(RefView::Document(Some(first))));
+        swap_split(&mut g, first);
+        assert_eq!(g.docs.active, 0);
+        assert!(g.app.session.word_count() > 0);
+        assert_eq!(g.glass.panel, Some(Panel::Reference(RefView::Document(Some(second)))));
     }
 }

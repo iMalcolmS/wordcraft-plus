@@ -15,6 +15,7 @@
 pub mod analysis;
 pub mod db;
 pub mod db_view;
+pub mod dict;
 pub mod docs;
 pub mod goals;
 pub mod inline;
@@ -30,6 +31,7 @@ mod dock;
 pub mod format;
 pub mod glyphs;
 mod home;
+pub mod labels;
 pub mod overlay;
 mod panels;
 mod pro;
@@ -69,12 +71,14 @@ pub enum Panel {
     Inspector,
     /// Writer Pro: the split reference pane (a notes folder, or `None` for the manuscript).
     Reference(scriv::RefView),
+    /// Dictionary & Thesaurus (for everyone; it shares the versions panel's place).
+    Dictionary,
 }
 
 impl Panel {
     /// Snapshots and History share the versions panel; the rest are Writer Pro's side panel.
     pub fn is_versions(self) -> bool {
-        matches!(self, Panel::Snapshots | Panel::History)
+        matches!(self, Panel::Snapshots | Panel::History | Panel::Dictionary)
     }
 }
 
@@ -126,6 +130,8 @@ pub struct GlassPrefs {
     pub grid: bool,
     /// Writer Pro: headings in tinted boxes with dashed rules between sections (Scrivenings).
     pub scrivenings: bool,
+    /// The split shows below the page instead of beside it.
+    pub split_below: bool,
 }
 
 impl Default for GlassPrefs {
@@ -143,6 +149,7 @@ impl Default for GlassPrefs {
             handles: true,
             grid: false,
             scrivenings: true,
+            split_below: false,
         }
     }
 }
@@ -213,6 +220,10 @@ pub struct GlassState {
     /// The Format inspector (page layout) is showing, and its tab.
     pub format_open: bool,
     pub format_tab: String,
+    /// The Labels editor is open.
+    pub labels_open: bool,
+    /// Dictionary & Thesaurus.
+    pub dict: dict::Dict,
 }
 
 /// The Glass application: the WordCraft app plus the Glass chrome and features.
@@ -223,6 +234,8 @@ pub struct GlassApp {
     pub docs: docs::Docs,
     /// Where databases and their pages are saved ([`workspace::default_workspace`] in the app).
     pub workspace: Option<std::path::PathBuf>,
+    /// Opens links that aren't web pages (`dict://`) with the system (set by the app).
+    pub open_external: Option<Box<dyn Fn(&str)>>,
     frames: u32,
     sent_title: String,
 }
@@ -231,8 +244,15 @@ impl GlassApp {
     /// A window on `app`'s document. It starts on Home when that document is an untouched blank
     /// one, and on the page otherwise.
     pub fn new(app: WordApp) -> Self {
-        let mut g =
-            GlassApp { app, glass: GlassState::default(), docs: docs::Docs::default(), workspace: None, frames: 0, sent_title: String::new() };
+        let mut g = GlassApp {
+            app,
+            glass: GlassState::default(),
+            docs: docs::Docs::default(),
+            workspace: None,
+            open_external: None,
+            frames: 0,
+            sent_title: String::new(),
+        };
         let s = &g.app.session;
         if s.path.is_none() && !s.dirty && s.word_count() == 0 {
             g.glass.view = View::Home;
@@ -483,7 +503,8 @@ impl GlassApp {
             None => {}
         }
         let versions = self.glass.panel.is_some_and(Panel::is_versions);
-        let side = self.glass.panel.is_some_and(|p| !p.is_versions()) && self.glass.prefs.pro;
+        let below = self.glass.prefs.split_below && matches!(self.glass.panel, Some(Panel::Reference(_))) && self.glass.prefs.pro;
+        let side = self.glass.panel.is_some_and(|p| !p.is_versions()) && self.glass.prefs.pro && !below;
         let nav = self.app.session.view.nav_pane;
         let pro = self.glass.prefs.pro;
         if !focus {
@@ -497,6 +518,25 @@ impl GlassApp {
         let area = ui.available_rect_before_wrap();
         dock::show(self, ui, t, &dock::VERSIONS, versions && !focus, area, |g, ui| panels::versions(g, ui, t));
         dock::show(self, ui, t, &dock::SIDE, side && !focus, area, |g, ui| pro::side(g, ui, t));
+        if below
+            && !focus
+            && let Some(Panel::Reference(view)) = self.glass.panel
+        {
+            let h = (ui.ctx().content_rect().height() * 0.4).clamp(240.0, 560.0);
+            egui::Panel::bottom("glass_split_below")
+                .resizable(true)
+                .default_size(h)
+                .min_size(140.0)
+                .max_size((ui.available_height() * 0.75).max(160.0))
+                .show_separator_line(false)
+                .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 12, right: 12, top: 6, bottom: 6 }))
+                .show(ui, |ui| {
+                    let r = ui.max_rect();
+                    ui.painter().add(tokens::glass_shape(r, tokens::radius::PANEL, t));
+                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink(14.0)).layout(egui::Layout::top_down(egui::Align::Min)));
+                    scriv::reference(self, &mut child, t, view);
+                });
+        }
         let fmt = format::wanted(self);
         dock::show(self, ui, t, &dock::FORMAT, fmt && !focus, area, |g, ui| format::panel(g, ui, t));
         dock::show(self, ui, t, &dock::BINDER, pro && self.glass.prefs.binder && !focus, area, |g, ui| scriv::binder(g, ui, t));
@@ -595,6 +635,7 @@ impl GlassApp {
             }
             appearance::show(self, &ctx, &t);
             chooser::show(self, &ctx, &t);
+            labels::editor(self, &ctx, &t);
             chrome::file_menu(self, &ctx, &t);
             if view != View::Home && !database {
                 chrome::goal_popover(self, &ctx, &t);

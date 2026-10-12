@@ -98,7 +98,10 @@ pub fn specs() -> Vec<CommandSpec> {
             Ok(json!({"value": s.view.proofing}))
         })
         .pure(),
-        CommandSpec::new("review.thesaurus", "Thesaurus", "Review › Proofing", thesaurus).key("Shift+F7").pure(),
+        CommandSpec::new("review.thesaurus", "Thesaurus", "Review › Proofing", thesaurus)
+            .key("Shift+F7")
+            .params(r#"{"word"?: string (default: the word at the caret), "lang"?: tag (default: the text's language)} → {"word", "lang", "synonyms", "meanings"?: [{"pos", "synonyms"}], "source": "thesaurus" | "built-in"}"#)
+            .pure(),
     ]
 }
 
@@ -848,8 +851,31 @@ fn thesaurus(s: &mut Session, v: &Value) -> CmdResult {
             p.text.get(a..b).unwrap_or("").trim().to_lowercase()
         }
     };
+    // The word's language: as given, the text's at the caret, or the document's default.
+    let lang = p::str(v, "lang").map(str::to_string).unwrap_or_else(|| {
+        let f = &s.sel.focus;
+        s.doc
+            .para_at(f)
+            .and_then(|p| p.props_at(f.off).lang.clone())
+            .or_else(|| s.doc.styles.default_chr.lang.clone())
+            .unwrap_or_else(|| "en-US".into())
+    });
+    // An installed thesaurus for the language (any language), else our small English list.
+    let meanings = wordcraft_proof::thes::lookup(&word, &lang);
+    if !meanings.is_empty() {
+        let mut syn: Vec<String> = Vec::new();
+        for m in &meanings {
+            for w in &m.words {
+                if !syn.contains(w) && syn.len() < 40 {
+                    syn.push(w.clone());
+                }
+            }
+        }
+        let meanings: Vec<Value> = meanings.iter().map(|m| json!({"pos": m.pos, "synonyms": m.words})).collect();
+        return Ok(json!({"word": word, "lang": lang, "synonyms": syn, "meanings": meanings, "source": "thesaurus"}));
+    }
     let syn = T.iter().find(|(w, _)| *w == word).map(|(_, l)| l.to_vec()).unwrap_or_default();
-    Ok(json!({"word": word, "synonyms": syn}))
+    Ok(json!({"word": word, "lang": lang, "synonyms": syn, "source": "built-in"}))
 }
 
 /// Track Changes Options: change the fields given, return them all. A per-user preference.

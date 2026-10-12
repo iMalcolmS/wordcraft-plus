@@ -72,8 +72,22 @@ pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                             }
                         });
                         let _ = r;
-                        let r = button_capsule(ui, t, 5, h - 6.0, |ui| {
+                        let r = button_capsule(ui, t, 6, h - 6.0, |ui| {
                             let s = h - 6.0;
+                            let dict = g.glass.panel == Some(Panel::Dictionary);
+                            if w::icon_capsule(
+                                ui,
+                                t,
+                                "thesaurus",
+                                "Dictionary & Thesaurus: spelling, synonyms and definitions in any language",
+                                s,
+                                dict,
+                                true,
+                            )
+                            .clicked()
+                            {
+                                g.glass.panel = if dict { None } else { Some(Panel::Dictionary) };
+                            }
                             let fmt = g.glass.format_open;
                             if w::icon_capsule(
                                 ui,

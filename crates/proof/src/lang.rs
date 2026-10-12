@@ -13,6 +13,9 @@ pub enum ProofLang {
     /// Polish (`pl`, `pl-PL`): the installed Hunspell dictionary (when there is one), the Polish grammar rules and the Polish
     /// hyphenation patterns.
     Pl,
+    /// A language the host's spell checker spells ([`crate::external`]): on macOS, every
+    /// language the system spell checker has (Portuguese, Spanish, French, German…).
+    System(crate::external::LangCode),
     /// A language without proofing tools here (`fr-FR`, `ja-JP`, `x-none`…). Like Word without
     /// the language's proofing tools: no spelling or grammar marks, so its words are never
     /// flagged as English misspellings. Hyphenation keeps using the English patterns, as before
@@ -34,15 +37,16 @@ impl ProofLang {
         } else if primary.eq_ignore_ascii_case("pl") || primary.eq_ignore_ascii_case("pol") {
             ProofLang::Pl
         } else {
-            ProofLang::Other
+            crate::external::resolve(tag).map(ProofLang::System).unwrap_or(ProofLang::Other)
         }
     }
 
     /// The primary language subtag (`en`, `pl`); empty for [`ProofLang::Other`].
-    pub fn code(self) -> &'static str {
+    pub fn code(&self) -> &str {
         match self {
             ProofLang::En => "en",
             ProofLang::Pl => "pl",
+            ProofLang::System(c) => c.primary(),
             ProofLang::Other => "",
         }
     }

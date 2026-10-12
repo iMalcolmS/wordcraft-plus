@@ -21,11 +21,13 @@
 
 pub mod affix;
 pub mod dict;
+pub mod external;
 pub mod hunspell;
 pub mod hyphen;
 pub mod lang;
 pub mod patterns;
 pub mod pl;
+pub mod thes;
 
 use std::collections::HashSet;
 use std::ops::Range;
@@ -78,6 +80,11 @@ fn user_words() -> &'static RwLock<HashSet<String>> {
 
 /// Bumped whenever the user dictionary changes, so cached proofing results can be dropped.
 static DICTIONARY_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Drop cached proofing results (a dictionary or spelling service changed).
+pub(crate) fn bump_generation() {
+    DICTIONARY_GENERATION.fetch_add(1, Ordering::Relaxed);
+}
 
 /// Add a word to the user dictionary ("Add to Dictionary"). It applies to every language.
 pub fn add_word(w: &str) {
@@ -360,6 +367,7 @@ fn spelling_issue(text: &str, a: usize, b: usize, lang: ProofLang, opts: &Option
     }
     let message = match lang {
         ProofLang::Pl => "Możliwy błąd pisowni",
+        ProofLang::System(c) => external::message(c),
         _ => "Possible spelling mistake",
     };
     Some(Issue { start: a, end: b, kind: IssueKind::Spelling, message: message.into(), suggestions: Vec::new(), lang })
@@ -375,6 +383,7 @@ pub fn is_correct_in_with(word: &str, lang: ProofLang, opts: &Options) -> bool {
     match lang {
         ProofLang::En => is_correct_with(word, opts),
         ProofLang::Pl => accepted_by_options(word, opts) || pl::is_correct(word),
+        ProofLang::System(c) => accepted_by_options(word, opts) || in_user_dictionary(&word.to_lowercase()) || external::is_correct(word, c),
         ProofLang::Other => true,
     }
 }
@@ -384,6 +393,7 @@ pub fn suggest_in(word: &str, max: usize, lang: ProofLang) -> Vec<String> {
     match lang {
         ProofLang::En => suggest(word, max),
         ProofLang::Pl => pl::suggest(word, max),
+        ProofLang::System(c) => external::suggest(word, max, c),
         ProofLang::Other => Vec::new(),
     }
 }
@@ -394,7 +404,7 @@ pub fn check_grammar_in(text: &str, lang: ProofLang) -> Vec<Issue> {
     match lang {
         ProofLang::En => check_grammar(text),
         ProofLang::Pl => pl::grammar::check(text),
-        ProofLang::Other => Vec::new(),
+        ProofLang::System(_) | ProofLang::Other => Vec::new(),
     }
 }
 

@@ -51,6 +51,8 @@ pub struct Note {
     pub kind: NoteKind,
     pub title: String,
     pub body: String,
+    /// Its colour label ([`Tag`] id).
+    pub tag: Option<u64>,
 }
 
 /// Text cut to the Scratchpad: kept, never lost.
@@ -145,7 +147,36 @@ pub struct Card {
     pub label: Label,
     /// The section's own notes (the Inspector's Notes).
     pub notes: String,
+    /// Its colour label ([`Tag`] id); takes the place of the older fixed `label`.
+    pub tag: Option<u64>,
 }
+
+/// A colour label the writer defines, as in Scrivener: a name, a colour and an icon (a flag, a
+/// star, a person…), for characters, points of view, timelines, topics or anything else. It
+/// marks sections in the Binder, on the Corkboard and on the page, and notes in the Binder.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Tag {
+    pub id: u64,
+    pub name: String,
+    pub tint: crate::db::Tint,
+    /// A glyph name (`crate::glyphs::LABELS`).
+    pub icon: String,
+}
+
+/// The labels a new project starts with (the writer renames, recolours or deletes them).
+pub const DEFAULT_TAGS: [(&str, crate::db::Tint, &str); 7] = [
+    ("Main plot", crate::db::Tint::Blue, "flag"),
+    ("Subplot", crate::db::Tint::Purple, "bookmark"),
+    ("Flashback", crate::db::Tint::Orange, "clock"),
+    ("POV: protagonist", crate::db::Tint::Red, "person"),
+    ("POV: other", crate::db::Tint::Teal, "globe"),
+    ("Important", crate::db::Tint::Yellow, "star"),
+    ("Needs research", crate::db::Tint::Gray, "bulb"),
+];
+
+/// Most labels a project keeps.
+const MAX_TAGS: usize = 200;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -153,15 +184,17 @@ pub struct Project {
     pub notes: Vec<Note>,
     pub scraps: Vec<Scrap>,
     pub cards: BTreeMap<String, Card>,
+    /// The colour labels (seeded with [`DEFAULT_TAGS`] the first time they're asked for).
+    pub tags: Vec<Tag>,
+    tags_seeded: bool,
     next_id: u64,
 }
 
 impl Project {
     pub fn add_note(&mut self, kind: NoteKind, title: &str) -> u64 {
-        self.next_id = self.next_id.saturating_add(1).max(self.notes.iter().map(|n| n.id).max().unwrap_or(0) + 1);
-        let id = self.next_id;
+        let id = self.fresh_id();
         if self.notes.len() < MAX_NOTES {
-            self.notes.push(Note { id, kind, title: title.to_string(), body: String::new() });
+            self.notes.push(Note { id, kind, title: title.to_string(), body: String::new(), tag: None });
         }
         id
     }
@@ -189,6 +222,76 @@ impl Project {
 
     pub fn card_mut(&mut self, title: &str) -> &mut Card {
         self.cards.entry(title.to_string()).or_default()
+    }
+
+    fn fresh_id(&mut self) -> u64 {
+        let max = self.notes.iter().map(|n| n.id).chain(self.tags.iter().map(|t| t.id)).max().unwrap_or(0);
+        self.next_id = self.next_id.saturating_add(1).max(max.saturating_add(1));
+        self.next_id
+    }
+
+    /// The colour labels, with the defaults added the first time.
+    pub fn tags(&mut self) -> &[Tag] {
+        if !self.tags_seeded {
+            self.tags_seeded = true;
+            if self.tags.is_empty() {
+                for (name, tint, icon) in DEFAULT_TAGS {
+                    self.add_tag(name, tint, icon);
+                }
+            }
+        }
+        &self.tags
+    }
+
+    pub fn tag(&self, id: u64) -> Option<&Tag> {
+        self.tags.iter().find(|t| t.id == id)
+    }
+
+    pub fn tag_mut(&mut self, id: u64) -> Option<&mut Tag> {
+        self.tags.iter_mut().find(|t| t.id == id)
+    }
+
+    /// Add a label; returns its id (0 when there are already too many).
+    pub fn add_tag(&mut self, name: &str, tint: crate::db::Tint, icon: &str) -> u64 {
+        if self.tags.len() >= MAX_TAGS {
+            return 0;
+        }
+        let id = self.fresh_id();
+        let name: String = name.chars().take(80).collect();
+        self.tags.push(Tag { id, name, tint, icon: icon.to_string() });
+        id
+    }
+
+    /// Delete a label, and take it off the sections and notes that had it.
+    pub fn remove_tag(&mut self, id: u64) {
+        self.tags_seeded = true;
+        self.tags.retain(|t| t.id != id);
+        for c in self.cards.values_mut() {
+            if c.tag == Some(id) {
+                c.tag = None;
+            }
+        }
+        for n in &mut self.notes {
+            if n.tag == Some(id) {
+                n.tag = None;
+            }
+        }
+    }
+
+    /// A section's label as (name, colour, icon): its own label, or the older fixed one.
+    pub fn card_tag(&self, c: &Card) -> Option<Tag> {
+        if let Some(t) = c.tag.and_then(|id| self.tag(id)) {
+            return Some(t.clone());
+        }
+        let tint = match c.label {
+            Label::None => return None,
+            Label::Rose => crate::db::Tint::Red,
+            Label::Amber => crate::db::Tint::Orange,
+            Label::Lime => crate::db::Tint::Green,
+            Label::Sky => crate::db::Tint::Blue,
+            Label::Violet => crate::db::Tint::Purple,
+        };
+        Some(Tag { id: 0, name: c.label.name().into(), tint, icon: "circle".into() })
     }
 }
 
@@ -283,6 +386,27 @@ mod tests {
         p.add_scrap("   ", "Ch 1", "d");
         assert_eq!(p.scraps.len(), 2);
         assert_eq!(p.scraps.first().map(|s| s.text.as_str()), Some("second"));
+    }
+
+    #[test]
+    fn labels_start_with_defaults_and_deleting_one_unlabels() {
+        let mut p = Project::default();
+        assert_eq!(p.tags().len(), DEFAULT_TAGS.len());
+        let id = p.tags()[0].id;
+        p.card_mut("Chapter 1").tag = Some(id);
+        let n = p.add_note(NoteKind::Character, "Mara");
+        assert_ne!(n, id, "notes and labels never share an id");
+        if let Some(note) = p.note_mut(n) {
+            note.tag = Some(id);
+        }
+        assert_eq!(p.card_tag(&p.card("Chapter 1")).map(|t| t.name), Some("Main plot".into()));
+        p.remove_tag(id);
+        assert_eq!(p.card("Chapter 1").tag, None);
+        assert_eq!(p.notes[0].tag, None);
+        assert_eq!(p.tags().len(), DEFAULT_TAGS.len() - 1, "the defaults don't come back");
+        // The older fixed labels still show.
+        let old = Card { label: Label::Sky, ..Default::default() };
+        assert!(p.card_tag(&old).is_some());
     }
 
     #[test]

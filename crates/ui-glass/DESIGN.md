@@ -220,6 +220,35 @@ Scrivener, Notion and Obsidian on a Word document. Everything stays a normal .do
 Card statuses, synopses, notes and scraps are kept per document in `glass-projects.json` next to
 the preferences (they are not written into the .docx).
 
+## The workspace: Docs, Databases, Page Layout
+
+- **Home** leads with the three pillars (Document, Database, Page Layout cards, each with its
+  templates), then featured templates and the workspace's databases.
+- **Choose a Template** (`src/chooser.rs`, `src/templates.rs`): an opaque sheet; a sidebar of
+  categories with glyphs; sections with 150 pt page thumbnails rendered by the engine (two per
+  frame, cached); database templates drawn as a small picture of their records; click to
+  select, double-click or Enter to create, Esc to close. All templates are our own text and
+  design; pictures in them are drawn in code (`templates::draw`).
+- **Databases** (`src/db.rs` model, `src/db_view.rs` page, `src/workspace.rs` files and tabs):
+  a database opens in its own tab (a glyph before its name) and saves itself a second after the
+  last change, as JSON (`.wcdb`) in `Documents/WordCraft/Databases`. Records open as `.docx`
+  pages in `<database> pages/`. Hostile files are capped (rows, properties, cell size, file
+  size) and repaired on open. Views keep filters, sorts, grouping and hidden properties; option
+  colours are ten soft tints.
+- **Page Layout** (`src/format.rs`): the Format inspector docks on the right (Style, Arrange,
+  Text); with nothing selected it adds text boxes, shapes, your pictures and drawn pictures,
+  each floated in front of the text on the page. Every change is a WordCraft command.
+- **Colour labels** (`src/labels.rs`): per project, a name, one of the ten tints and a glyph;
+  shown in the Binder, on Corkboard cards (a band and the glyph), on the page (section boxes)
+  and on notes. The older fixed labels still show.
+- **Split**: beside the page (the side dock) or below it (a resizable bottom panel); Swap trades
+  the open document and the one in the split.
+- **Dictionary & Thesaurus** (`src/dict.rs`): in the right-hand panel's place. Spelling comes
+  from WordCraft's proofing (`wordcraft_proof`): English and Polish built in, and on macOS every
+  language of the system spell checker through `proof::external` (installed by the app, main
+  thread only). Synonyms come from MyThes thesauri (`proof::thes`) found in the dictionaries
+  folders and LibreOffice's dictionary extensions; English falls back to a small built-in list.
+
 ## Known limits
 
 - Versions live in memory with the document and are lost when it closes.
@@ -233,5 +262,13 @@ the preferences (they are not written into the .docx).
 - Not yet in Writer Pro: an AI continuity checker, compiling several
   documents into one PDF, citation import (BibTeX/RIS, EndNote) beyond the classic Zotero tab,
   hover previews of cross-references, institutional template checks, and a reviewer response log.
+- Databases have no formulas, relations or rollups yet, and no sharing; a record's page is a
+  separate `.docx`, not stored inside the database.
+- Spelling in languages other than English and Polish needs the Mac's spell checker; on Linux
+  and Windows those languages show no spelling marks yet (WordCraft's Hunspell reader doesn't
+  read compounding or long-flag dictionaries). Definitions are looked up online (Wiktionary) or
+  in the Mac's Dictionary app, not shown in the panel.
+- The split shows the other document's pages (click to go there, Swap to edit it); a second
+  live editor needs two canvases.
 - On Linux desktops without a file-chooser portal or zenity, the classic app falls back to its own
   file browser; Glass can't show it yet (`file_browser::show` is crate-private in `ui-egui`).

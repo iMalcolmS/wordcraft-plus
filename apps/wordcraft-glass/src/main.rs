@@ -25,6 +25,9 @@ mod host {
 }
 
 #[cfg(target_os = "macos")]
+mod spell_mac;
+
+#[cfg(target_os = "macos")]
 use host::apple_events;
 #[cfg(target_os = "windows")]
 use host::graphics;
@@ -298,6 +301,15 @@ fn main() -> eframe::Result {
             if prefs_enabled() {
                 glass.set_workspace(wordcraft_ui_glass::workspace::default_workspace());
             }
+            // Spelling in every language the Mac spells (Portuguese, Spanish, French…).
+            #[cfg(target_os = "macos")]
+            spell_mac::install();
+            // Links that aren't web pages (the Dictionary app's `dict://`) open with the system.
+            glass.open_external = Some(Box::new(|url: &str| {
+                if let Err(e) = open::that_detached(url) {
+                    log::warn!("open {url}: {e}");
+                }
+            }));
             glass.app.ui.window = restored;
             // Each file opens in its own tab.
             for f in files {

@@ -29,7 +29,9 @@ log = { workspace = true }
 # platform crates, at the same versions and features.
 [target.'cfg(target_os = "macos")'.dependencies]
 fmv-macos-events = "=0.1.0"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSAccessibility", "NSApplication"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSAccessibility", "NSApplication", "NSSpellChecker"] }
+# The system spell checker (src/spell_mac.rs).
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSArray", "NSRange", "NSObjCRuntime", "NSEnumerator"] }
 objc2 = "0.6"
 dispatch2 = "0.3"
 

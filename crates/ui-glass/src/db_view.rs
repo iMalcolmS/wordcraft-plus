@@ -435,7 +435,7 @@ fn filter_menu(db: &mut Database, ui: &mut Ui, t: &Tokens, vi: usize) {
                 if f.op.takes_value() && ui.add(egui::TextEdit::singleline(&mut nf.value).desired_width(110.0)).changed() {
                     changed = true;
                 }
-                if ui.small_button("✕").on_hover_text("Remove").clicked() {
+                if crate::widgets::icon_capsule(ui, t, "close", "Remove", 22.0, false, true).clicked() {
                     remove = Some(i);
                 }
             });
@@ -490,7 +490,7 @@ fn sort_menu(db: &mut Database, ui: &mut Ui, t: &Tokens, vi: usize) {
                     ns.desc = true;
                     changed = true;
                 }
-                if ui.small_button("✕").clicked() {
+                if crate::widgets::icon_capsule(ui, t, "close", "Remove", 22.0, false, true).clicked() {
                     remove = Some(i);
                 }
             });
@@ -726,7 +726,10 @@ fn options_menu(db: &mut Database, st: &mut DbUi, ui: &mut Ui, t: &Tokens, row: 
         paint_state(ui, r, 6, &resp, current.contains(&o.name), t);
         chip(ui, pos2(r.min.x + 8.0, r.center().y), &o.name, o.tint, t, r.width() - 40.0);
         if current.contains(&o.name) {
-            ui.painter().text(pos2(r.max.x - 12.0, r.center().y), Align2::CENTER_CENTER, "✓", medium(12.0), t.accent);
+            let c = pos2(r.max.x - 14.0, r.center().y);
+            let st = Stroke::new(1.8, t.accent);
+            ui.painter().line_segment([pos2(c.x - 5.0, c.y), pos2(c.x - 1.5, c.y + 4.0)], st);
+            ui.painter().line_segment([pos2(c.x - 1.5, c.y + 4.0), pos2(c.x + 5.0, c.y - 4.0)], st);
         }
         if resp.clicked() {
             db.toggle_option(row, prop, &o.name);

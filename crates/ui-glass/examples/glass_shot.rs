@@ -157,6 +157,33 @@ fn main() {
             let id = harness.state_mut().active_db().and_then(|d| d.rows.get(i as usize)).map(|r| r.id);
             harness.state_mut().glass.dbui.peek = id;
             step_n(&mut harness, 6);
+        } else if let Some(p) = l.get("panel").and_then(|v| v.as_str()) {
+            let g = harness.state_mut();
+            match p {
+                "dictionary" => g.glass.panel = Some(wordcraft_ui_glass::Panel::Dictionary),
+                "labels" => g.glass.labels_open = true,
+                _ => {}
+            }
+            step_n(&mut harness, 8);
+        } else if l.get("labelcards").is_some() {
+            // Give the first sections labels, to show colour coding.
+            let g = harness.state_mut();
+            let key = wordcraft_ui_glass::project::key(&g.app.session);
+            let secs = wordcraft_ui_glass::project::sections(&g.app.session);
+            let p = g.glass.projects.by_doc.entry(key).or_default();
+            let tags: Vec<u64> = p.tags().iter().map(|t| t.id).collect();
+            for (i, s) in secs.iter().enumerate() {
+                p.card_mut(&s.title).tag = tags.get(i % 4).copied();
+            }
+            step_n(&mut harness, 4);
+        } else if let Some(i) = l.get("splitdoc").and_then(|v| v.as_u64()) {
+            let g = harness.state_mut();
+            let uid = g.docs.tabs.get(i as usize).map(|t| t.uid);
+            g.glass.panel = Some(wordcraft_ui_glass::Panel::Reference(wordcraft_ui_glass::scriv::RefView::Document(uid)));
+            step_n(&mut harness, 30);
+        } else if l.get("split_below").is_some() {
+            harness.state_mut().glass.prefs.split_below = true;
+            step_n(&mut harness, 4);
         } else if l.get("format").is_some() {
             harness.state_mut().glass.format_open = true;
             step_n(&mut harness, 4);

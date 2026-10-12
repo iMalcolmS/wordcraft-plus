@@ -105,6 +105,14 @@ pub fn corkboard(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 open = Some(i);
             }
             let chip = draw_card(ui, t, r, sec, &meta, resp.hovered(), 0.0);
+            // Its colour label: a band down the card's left edge and the label's icon.
+            if let Some(tag) = g.glass.projects.by_doc.get(&pkey).and_then(|p| p.card_tag(&meta)) {
+                let lift = ui.ctx().animate_bool_with_time(egui::Id::new(("card_lift", &sec.title)), resp.hovered(), 0.15);
+                let cr = r.translate(vec2(0.0, -2.0 * lift));
+                let band = Rect::from_min_max(cr.min, pos2(cr.min.x + 6.0, cr.max.y));
+                ui.painter().rect_filled(band, egui::CornerRadius { nw: 14, sw: 14, ne: 0, se: 0 }, crate::labels::color(tag.tint));
+                crate::labels::mark(ui.painter(), Rect::from_center_size(pos2(cr.max.x - 20.0, cr.min.y + 24.0), vec2(14.0, 14.0)), &tag);
+            }
             let cresp = ui.interact(chip, ui.id().with(("chip", k)), Sense::click()).on_hover_text("Change status");
             if cresp.clicked() {
                 cycle = Some(sec.title.clone());
@@ -559,6 +567,20 @@ fn note(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, id: u64) {
         m.title = title;
         m.body = body;
     }
+    ui.add_space(10.0);
+    let project = g.glass.projects.by_doc.entry(pkey.clone()).or_default();
+    let tags = project.tags().to_vec();
+    let tag = n.tag.and_then(|id| project.tag(id)).cloned();
+    let resp = crate::labels::pill(ui, t, tag.as_ref(), 200.0);
+    egui::Popup::menu(&resp).show(|ui| match crate::labels::menu(ui, t, &tags, n.tag) {
+        Some(crate::labels::Choice::Set(id)) => {
+            if let Some(m) = g.glass.projects.by_doc.get_mut(&pkey).and_then(|p| p.note_mut(n.id)) {
+                m.tag = id;
+            }
+        }
+        Some(crate::labels::Choice::Edit) => g.glass.labels_open = true,
+        None => {}
+    });
     ui.add_space(10.0);
     if w::quiet_button(ui, t, "Delete Note", None, 30.0).clicked() {
         if let Some(p) = g.glass.projects.by_doc.get_mut(&pkey) {

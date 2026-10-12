@@ -370,6 +370,10 @@ fn diff_preview(ui: &mut Ui, t: &Tokens, old: &Document, now: &Document) {
 
 /// Snapshots and Version History.
 pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+    if g.glass.panel.or(g.glass.last_panel) == Some(Panel::Dictionary) {
+        crate::dict::panel(g, ui, t);
+        return;
+    }
     {
         {
             {
