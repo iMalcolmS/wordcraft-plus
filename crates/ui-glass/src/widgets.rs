@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use wordcraft_ui_egui::theme::{medium, regular};
 use wordcraft_ui_egui::{WordApp, icons, widgets as wc};
 
-use crate::tokens::{Tokens, interaction_fill, paint_fill, paint_pill, radius};
+use crate::tokens::{Tokens, paint_fill, paint_pill, radius};
 
 /// Parse a JSON params literal from the ribbon tables (an empty or bad literal is `{}`).
 pub fn params(s: &str) -> Value {
@@ -39,8 +39,8 @@ fn tooltip(app: &WordApp, resp: Response, tip: &str, id: &str) -> Response {
 /// decides what a click does.
 pub fn icon_capsule(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str, size: f32, on: bool, enabled: bool) -> Response {
     let (r, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click());
-    if enabled && let Some(fill) = interaction_fill(&resp, on, t) {
-        paint_fill(ui.painter(), r, radius::CAPSULE, fill);
+    if enabled {
+        crate::tokens::paint_state(ui, r, radius::CAPSULE, &resp, on, t);
     }
     let c = if !enabled {
         t.text_disabled
@@ -66,9 +66,9 @@ pub fn command_capsule(ui: &mut Ui, app: &mut WordApp, t: &Tokens, icon: &str, t
 }
 
 /// Height of a large ribbon button.
-pub const BIG_H: f32 = 64.0;
+pub const BIG_H: f32 = 70.0;
 /// Height of one small ribbon button (three stack in a column).
-pub const SMALL_H: f32 = 20.0;
+pub const SMALL_H: f32 = 22.0;
 
 /// A large ribbon button: 24 pt icon over its label. `menu` adds a chevron and leaves the click to
 /// the caller (which opens the menu).
@@ -80,8 +80,8 @@ pub fn big(ui: &mut Ui, app: &mut WordApp, t: &Tokens, icon: &str, label: &str, 
     let text_w = lines.iter().map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap((*l).to_string(), font.clone(), t.text).size().x)).fold(0.0, f32::max);
     let w = (text_w + if menu { 22.0 } else { 14.0 }).max(50.0);
     let (r, resp) = ui.allocate_exact_size(vec2(w, BIG_H), Sense::click());
-    if enabled && let Some(fill) = interaction_fill(&resp, on, t) {
-        paint_fill(ui.painter(), r, radius::BUTTON, fill);
+    if enabled {
+        crate::tokens::paint_state(ui, r, radius::BUTTON, &resp, on, t);
     }
     let (c, a) = if enabled { (t.text, t.accent) } else { (t.text_disabled, t.text_disabled) };
     icons::paint(ui.painter(), Rect::from_center_size(pos2(r.center().x, r.min.y + 19.0), vec2(26.0, 26.0)), icon, c, a);
@@ -108,8 +108,8 @@ pub fn small(ui: &mut Ui, app: &mut WordApp, t: &Tokens, icon: &str, label: &str
     let text = if menu { format!("{label} ⌄") } else { label.to_string() };
     let text_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(text.clone(), font.clone(), t.text).size().x);
     let (r, resp) = ui.allocate_exact_size(vec2(text_w + 32.0, SMALL_H), Sense::click());
-    if enabled && let Some(fill) = interaction_fill(&resp, on, t) {
-        paint_fill(ui.painter(), r, 8, fill);
+    if enabled {
+        crate::tokens::paint_state(ui, r, 8, &resp, on, t);
     }
     let (c, a) = if enabled { (t.text, t.accent) } else { (t.text_disabled, t.text_disabled) };
     icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 13.0, r.center().y), vec2(16.0, 16.0)), icon, c, a);

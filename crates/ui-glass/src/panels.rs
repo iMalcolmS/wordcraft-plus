@@ -7,7 +7,7 @@ use serde_json::json;
 use wordcraft_engine::doc::{Document, Pos, StoryRef};
 use wordcraft_ui_egui::theme::{medium, regular, semibold};
 
-use crate::tokens::{Tokens, glass_shape, interaction_fill, paint_fill, radius};
+use crate::tokens::{Tokens, glass_shape, paint_fill, radius};
 use crate::widgets as w;
 use crate::{AUTO_LABEL, GlassApp, Panel};
 
@@ -15,7 +15,7 @@ use crate::{AUTO_LABEL, GlassApp, Panel};
 fn card(ui: &mut Ui, t: &Tokens, add: impl FnOnce(&mut Ui)) {
     let rect = ui.max_rect();
     ui.painter().add(glass_shape(rect, radius::PANEL, t));
-    let inner = rect.shrink(10.0);
+    let inner = rect.shrink(14.0);
     // Content never grows the panel: it is laid out in, and clipped to, the card.
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(egui::Layout::top_down(egui::Align::Min)));
     child.set_clip_rect(rect);
@@ -31,9 +31,7 @@ fn close_button(ui: &mut Ui, t: &Tokens) -> bool {
 /// A selectable row: rounded, highlighted when `on`.
 fn row(ui: &mut Ui, t: &Tokens, text: &str, indent: f32, bold: bool, on: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-    if let Some(fill) = interaction_fill(&resp, on, t) {
-        paint_fill(ui.painter(), r, radius::ROW, fill);
-    }
+    crate::tokens::paint_state(ui, r, radius::ROW, &resp, on, t);
     let font = if bold || on { semibold(12.5) } else { regular(12.5) };
     let color = if on { t.accent } else { t.text };
     let max_chars = ((r.width() - indent - 20.0) / 6.5).max(4.0) as usize;
@@ -44,13 +42,14 @@ fn row(ui: &mut Ui, t: &Tokens, text: &str, indent: f32, bold: bool, on: bool) -
 }
 
 /// View › Navigation Pane, as glass: the document's headings, or its pages.
-pub fn navigation(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+pub fn navigation(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
+    let mut open = expanded;
     egui::Panel::left("glass_nav")
         .exact_size(260.0)
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 10, right: 0, top: 2, bottom: 6 }))
-        .show(ui, |ui| {
+        .show_collapsible(ui, &mut open, |ui| {
             card(ui, t, |ui| {
                 ui.horizontal(|ui| {
                     let tabs = ["Headings", "Pages"];
@@ -217,16 +216,17 @@ fn diff_preview(ui: &mut Ui, t: &Tokens, old: &Document, now: &Document) {
 }
 
 /// Snapshots and Version History.
-pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
+    let mut open = expanded;
     egui::Panel::right("glass_versions")
         .exact_size(310.0)
         .resizable(false)
         .show_separator_line(false)
         .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 0, right: 10, top: 2, bottom: 6 }))
-        .show(ui, |ui| {
+        .show_collapsible(ui, &mut open, |ui| {
             card(ui, t, |ui| {
                 ui.horizontal(|ui| {
-                    let sel = usize::from(g.glass.panel == Some(Panel::History));
+                    let sel = usize::from(g.glass.panel.or(g.glass.last_panel) == Some(Panel::History));
                     if let Some(i) = w::segmented(ui, t, &["Snapshots", "History"], sel, 30.0) {
                         g.glass.panel = Some(if i == 1 { Panel::History } else { Panel::Snapshots });
                         g.glass.selected_version = None;
@@ -240,6 +240,7 @@ pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 ui.add_space(10.0);
                 match g.glass.panel {
                     Some(Panel::History) => history(g, ui, t),
+                    None if g.glass.last_panel == Some(Panel::History) => history(g, ui, t),
                     _ => snapshots(g, ui, t),
                 }
             });
@@ -378,9 +379,7 @@ fn history(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
             }
             let on = g.glass.selected_version == Some(i);
             let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
-            if let Some(fill) = interaction_fill(&resp, on, t) {
-                paint_fill(ui.painter(), r, radius::ROW, fill);
-            }
+            crate::tokens::paint_state(ui, r, radius::ROW, &resp, on, t);
             ui.painter().circle_filled(pos2(r.min.x + 16.0, r.center().y), 4.0, if on { t.accent } else { t.text_disabled });
             let auto = label == AUTO_LABEL;
             ui.painter().text(

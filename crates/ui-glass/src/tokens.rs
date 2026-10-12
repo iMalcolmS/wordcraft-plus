@@ -202,16 +202,21 @@ pub fn paint_pill(p: &Painter, rect: Rect, t: &Tokens) {
     p.rect_filled(rect, cr, t.pill);
 }
 
-/// The background of an interactive control in its current state.
-pub fn interaction_fill(resp: &egui::Response, on: bool, t: &Tokens) -> Option<Color32> {
+/// Paint an interactive control's background for its state, animated: hover fades in and out
+/// (120 ms), the "on" tint eases in (180 ms) and a press darkens at once, as macOS controls do.
+pub fn paint_state(ui: &egui::Ui, rect: Rect, r: u8, resp: &egui::Response, on: bool, t: &Tokens) {
+    let ctx = ui.ctx();
+    let hover = ctx.animate_bool_with_time(resp.id.with("glass_hover"), resp.hovered(), 0.12);
+    let lit = ctx.animate_bool_with_time(resp.id.with("glass_on"), on, 0.18);
+    let cr = corner(r, rect);
+    if lit > 0.0 {
+        ui.painter().rect_filled(rect, cr, t.accent_soft.gamma_multiply(lit));
+    }
+    if hover > 0.0 {
+        ui.painter().rect_filled(rect, cr, t.hover.gamma_multiply(hover));
+    }
     if resp.is_pointer_button_down_on() {
-        Some(t.pressed)
-    } else if on {
-        Some(t.accent_soft)
-    } else if resp.hovered() {
-        Some(t.hover)
-    } else {
-        None
+        ui.painter().rect_filled(rect, cr, t.pressed);
     }
 }
 

@@ -2,13 +2,12 @@
 
 use egui::{Align, Align2, Color32, Layout, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2};
 use serde_json::json;
-use wordcraft_ui_egui::chrome::MAC_CONTENT_LEFT;
 use wordcraft_ui_egui::theme::{medium, regular, semibold};
-use wordcraft_ui_egui::{WordApp, icons, widgets as wc};
+use wordcraft_ui_egui::{WordApp, widgets as wc};
 
 use crate::goals::minutes_text;
 use crate::ribbon::Local;
-use crate::tokens::{Tokens, glass_shape, paint_fill, paint_glass, radius};
+use crate::tokens::{Tokens, glass_shape, radius};
 use crate::widgets as w;
 use crate::{GlassApp, Panel};
 
@@ -24,67 +23,85 @@ fn button_capsule(ui: &mut Ui, t: &Tokens, n: usize, size: f32, add: impl FnOnce
     r
 }
 
-/// The title bar: Quick Access capsule, the document's name, and the writing tools, search and
-/// Share on the right. On macOS it shares the band with the window's traffic lights.
-pub fn title_bar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+/// Let the window be moved by dragging empty chrome, and zoomed by double-clicking it, as macOS
+/// title bars and toolbars do.
+fn window_drag(ui: &mut Ui, rect: Rect, salt: &str) {
+    let drag = ui.interact(rect, ui.id().with(salt), Sense::click_and_drag());
+    if drag.drag_started() {
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+    }
+    if drag.double_clicked() {
+        let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+    }
+}
+
+/// macOS: the title band beside the traffic lights, holding only the document's name and state,
+/// like any Mac window. (Elsewhere the system title bar shows the name.)
+pub fn title_band(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+    if !g.app.integrated_titlebar {
+        return;
+    }
+    egui::Panel::top("glass_title").show_separator_line(false).exact_size(28.0).frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
+        let full = ui.max_rect();
+        window_drag(ui, full, "glass_title_drag");
+        let state = if g.app.session.dirty {
+            "Edited"
+        } else if g.app.session.path.is_some() {
+            "Saved"
+        } else {
+            "Not saved"
+        };
+        let name = g.app.title_stem();
+        let mut job = egui::text::LayoutJob::default();
+        job.append(&name, 0.0, egui::TextFormat { font_id: semibold(13.0), color: t.text, ..Default::default() });
+        job.append(&format!("  —  {state}"), 0.0, egui::TextFormat { font_id: regular(13.0), color: t.text_dim, ..Default::default() });
+        let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
+        let pos = pos2(full.center().x - galley.size().x / 2.0, full.center().y - galley.size().y / 2.0);
+        ui.painter().galley(pos, galley, t.text);
+    });
+}
+
+/// The toolbar: Quick Access on the left, the tabs in the middle, writing tools, search and Share
+/// on the right, all on one line, the way a Mac app's unified toolbar reads.
+pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     let mac = g.app.integrated_titlebar;
-    let item_h = if mac { 28.0 } else { 34.0 };
-    let left = if mac { MAC_CONTENT_LEFT as i8 } else { 10 };
-    egui::Panel::top("glass_title")
+    egui::Panel::top("glass_toolbar")
         .show_separator_line(false)
-        .exact_size(item_h + if mac { 6.0 } else { 16.0 })
-        .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left, right: 10, top: if mac { 0 } else { 8 }, bottom: 0 }))
+        .exact_size(if mac { 48.0 } else { 56.0 })
+        .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 14, right: 14, top: if mac { 2 } else { 10 }, bottom: 8 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
-            let drag = ui.interact(full, ui.id().with("glass_title_drag"), Sense::click_and_drag());
-            if drag.drag_started() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-            }
-            if drag.double_clicked() {
-                let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-            }
-            let row = Rect::from_min_size(full.min, vec2(full.width(), item_h));
+            window_drag(ui, full, "glass_toolbar_drag");
+            let h = 34.0;
+            let row = Rect::from_min_size(pos2(full.min.x, full.center().y - h / 2.0), vec2(full.width(), h));
             let mut left_end = row.min.x;
             let mut right_start = row.max.x;
             ui.scope_builder(egui::UiBuilder::new().max_rect(row).layout(Layout::left_to_right(Align::Center)), |ui| {
-                ui.spacing_mut().item_spacing = vec2(8.0, 0.0);
-                // Quick Access Toolbar (Save, Undo, Redo, or the user's own).
+                ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
                 let ids: Vec<String> = g.app.session.ribbon.qat().into_iter().map(str::to_string).collect();
-                let r = button_capsule(ui, t, ids.len(), item_h - 6.0, |ui| {
+                let r = button_capsule(ui, t, ids.len(), h - 6.0, |ui| {
                     for id in &ids {
                         let label = g.app.session.registry.get(id).map(|s| s.label).unwrap_or(id.as_str()).to_string();
-                        w::command_capsule(ui, &mut g.app, t, wc::command_icon(id), &label, id, item_h - 6.0);
+                        w::command_capsule(ui, &mut g.app, t, wc::command_icon(id), &label, id, h - 6.0);
                     }
                 });
                 left_end = r.max.x;
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.spacing_mut().item_spacing = vec2(8.0, 0.0);
-                    if w::accent_button(ui, t, Some("share"), "Share", None, item_h - 2.0).on_hover_text("Save or export a copy to share").clicked() {
+                    ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
+                    if w::accent_button(ui, t, Some("share"), "Share", None, h).on_hover_text("Save or export a copy to share").clicked() {
                         w::run(ui, &mut g.app, "file.share", json!({}));
                     }
-                    // Search: the command palette.
-                    let (sr, sresp) = ui.allocate_exact_size(vec2(200.0, item_h - 2.0), Sense::click());
-                    paint_glass(ui.painter(), sr, radius::CAPSULE, t);
-                    if sresp.hovered() {
-                        paint_fill(ui.painter(), sr, radius::CAPSULE, t.hover);
-                    }
-                    icons::paint(
-                        ui.painter(),
-                        Rect::from_center_size(pos2(sr.min.x + 18.0, sr.center().y), vec2(15.0, 15.0)),
-                        "search",
-                        t.text_dim,
-                        t.accent,
-                    );
-                    ui.painter().text(pos2(sr.min.x + 32.0, sr.center().y), Align2::LEFT_CENTER, "Search commands", regular(12.5), t.text_dim);
-                    if sresp.on_hover_text("Find any command").clicked() {
-                        w::run(ui, &mut g.app, "ui.dialog", json!({"name": "commands"}));
-                    }
-                    // Writing tools.
-                    let r = button_capsule(ui, t, 4, item_h - 6.0, |ui| {
-                        let s = item_h - 6.0;
+                    let r = button_capsule(ui, t, 1, h - 6.0, |ui| {
+                        if w::icon_capsule(ui, t, "search", "Search commands", h - 6.0, false, true).clicked() {
+                            w::run(ui, &mut g.app, "ui.dialog", json!({"name": "commands"}));
+                        }
+                    });
+                    let _ = r;
+                    let r = button_capsule(ui, t, 4, h - 6.0, |ui| {
+                        let s = h - 6.0;
                         let tw = g.glass.prefs.typewriter;
-                        if w::icon_capsule(ui, t, "focus", "Typewriter mode: dims everything but the lines you are writing", s, tw, true).clicked() {
+                        if w::icon_capsule(ui, t, "focus", "Typewriter mode: fades everything but the lines you're writing", s, tw, true).clicked() {
                             g.toggle(Local::Typewriter);
                         }
                         w::icon_capsule(ui, t, "split", "Split View is coming in a later version", s, false, false);
@@ -100,28 +117,206 @@ pub fn title_bar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                     right_start = r.min.x;
                 });
             });
-            // The document's name, centred like a macOS window title, when there is room.
-            let state = if g.app.session.dirty {
-                "Edited"
-            } else if g.app.session.path.is_some() {
-                "Saved"
+            let space = Rect::from_min_max(pos2(left_end + 16.0, row.min.y), pos2(right_start - 16.0, row.max.y));
+            tab_strip(g, ui, t, space);
+        });
+}
+
+/// Tabs that live behind "More" unless one of them is open.
+const EXTRA_TABS: [&str; 2] = ["Developer", "Zotero"];
+
+/// The tabs as a glass segmented control. The selected tab's pill glides to the tab you pick.
+fn tab_strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, space: Rect) {
+    let current = g.app.ui.tab.clone();
+    let all = crate::ribbon::tabs(&g.app);
+    let mut names: Vec<String> = all.iter().filter(|n| !EXTRA_TABS.contains(&n.as_str()) || **n == current).cloned().collect();
+    let extras: Vec<String> = all.iter().filter(|n| EXTRA_TABS.contains(&n.as_str()) && **n != current).cloned().collect();
+    if !extras.is_empty() {
+        names.push("More".into());
+    }
+    let font = medium(13.0);
+    let mut pad = 28.0;
+    let text_w: Vec<f32> = names.iter().map(|n| ui.ctx().fonts_mut(|f| f.layout_no_wrap(n.clone(), font.clone(), t.text).size().x)).collect();
+    let mut total: f32 = text_w.iter().sum::<f32>() + pad * names.len() as f32 + 6.0;
+    if total > space.width() {
+        pad = 16.0;
+        total = text_w.iter().sum::<f32>() + pad * names.len() as f32 + 6.0;
+    }
+    let track = Rect::from_center_size(space.center(), vec2(total.min(space.width().max(0.0)), space.height()));
+    ui.painter().add(glass_shape(track, radius::CAPSULE, t));
+    let mut rects = Vec::with_capacity(names.len());
+    let mut x = track.min.x + 3.0;
+    for tw in &text_w {
+        let r = Rect::from_min_size(pos2(x, track.min.y + 3.0), vec2(tw + pad, track.height() - 6.0));
+        rects.push(r);
+        x += tw + pad;
+    }
+    let selected = if g.glass.file_menu { names.iter().position(|n| n == "File") } else { names.iter().position(|n| *n == current) };
+    if let Some(sel) = selected.and_then(|i| rects.get(i)) {
+        let ctx = ui.ctx().clone();
+        let px = ctx.animate_value_with_time(egui::Id::new("glass_tab_pill_x"), sel.min.x - track.min.x, 0.24);
+        let pw = ctx.animate_value_with_time(egui::Id::new("glass_tab_pill_w"), sel.width(), 0.24);
+        let pill = Rect::from_min_size(pos2(track.min.x + px, sel.min.y), vec2(pw, sel.height()));
+        crate::tokens::paint_pill(ui.painter(), pill, t);
+    }
+    let clip = ui.clip_rect();
+    for (i, (name, r)) in names.iter().zip(rects.iter()).enumerate() {
+        if !clip.intersects(*r) || r.max.x > track.max.x + 1.0 {
+            continue;
+        }
+        let resp = ui.interact(*r, ui.id().with(("glass_tab", name.as_str())), Sense::click());
+        let on = selected == Some(i);
+        let hover = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered(), 0.12);
+        let c = if on { t.text } else { lerp_color(t.text_dim, t.text, hover) };
+        let label = if name == "More" { "More ⌄".to_string() } else { name.clone() };
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, label, font.clone(), c);
+        if name == "More" {
+            egui::Popup::menu(&resp).show(|ui| {
+                ui.set_min_width(170.0);
+                for e in &extras {
+                    if ui.button(e.as_str()).clicked() {
+                        g.app.ui.tab = e.clone();
+                        ui.close();
+                    }
+                }
+            });
+            continue;
+        }
+        if resp.clicked() {
+            if name == "File" {
+                g.glass.file_menu = !g.glass.file_menu;
+                g.glass.file_anchor = Some(*r);
             } else {
-                "Not saved"
-            };
-            let name = g.app.title_stem();
-            let name_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(name.clone(), semibold(13.0), t.text).size().x);
-            let cx = row.center().x;
-            if cx - name_w / 2.0 > left_end + 12.0 && cx + name_w / 2.0 < right_start - 12.0 {
-                let two_lines = item_h >= 32.0;
-                if two_lines {
-                    ui.painter().text(pos2(cx, row.center().y - 7.0), Align2::CENTER_CENTER, &name, semibold(13.0), t.text);
-                    ui.painter().text(pos2(cx, row.center().y + 8.0), Align2::CENTER_CENTER, state, regular(11.0), t.text_dim);
-                } else {
-                    let text = format!("{name} — {state}");
-                    ui.painter().text(row.center(), Align2::CENTER_CENTER, text, semibold(12.5), t.text);
+                g.glass.file_menu = false;
+                g.app.ui.tab = name.clone();
+                if g.app.session.view.focus_mode {
+                    w::run(ui, &mut g.app, "view.focus", json!({"value": false}));
                 }
             }
+        }
+    }
+}
+
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let mix = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
+    Color32::from_rgba_premultiplied(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()), mix(a.a(), b.a()))
+}
+
+/// One row of the File menu: a label and, on the right, its shortcut.
+fn menu_row(ui: &mut Ui, t: &Tokens, label: &str, shortcut: &str, enabled: bool) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
+    if enabled {
+        crate::tokens::paint_state(ui, r, 8, &resp, false, t);
+    }
+    let c = if enabled { t.text } else { t.text_disabled };
+    ui.painter().text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, label, regular(13.0), c);
+    if !shortcut.is_empty() {
+        ui.painter().text(pos2(r.max.x - 12.0, r.center().y), Align2::RIGHT_CENTER, shortcut, regular(12.0), t.text_dim);
+    }
+    resp
+}
+
+fn menu_section(ui: &mut Ui, t: &Tokens, title: &str) {
+    ui.add_space(4.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
+    ui.painter().text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, title, semibold(11.0), t.text_dim);
+}
+
+fn menu_separator(ui: &mut Ui, t: &Tokens) {
+    ui.add_space(4.0);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().rect_filled(r.shrink2(vec2(10.0, 0.0)), 0.0, t.edge.gamma_multiply(0.6));
+    ui.add_space(4.0);
+}
+
+/// The File menu: a glass menu under the File tab instead of a full-window takeover, the way a Mac
+/// app's File menu works. Pages that need the whole window (templates, print, options) still open
+/// in the full File view.
+pub fn file_menu(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
+    let open = g.glass.file_menu;
+    let fade = ctx.animate_bool_with_time(egui::Id::new("glass_file_menu_fade"), open, 0.14);
+    if fade <= 0.0 {
+        return;
+    }
+    let Some(anchor) = g.glass.file_anchor else { return };
+    let pos = pos2(anchor.min.x - 4.0, anchor.max.y + 10.0 - (1.0 - fade) * 6.0);
+    let area = egui::Area::new(egui::Id::new("glass_file_menu")).order(egui::Order::Foreground).fixed_pos(pos).show(ctx, |ui| {
+        ui.multiply_opacity(fade);
+        let bg = ui.painter().add(Shape::Noop);
+        let inner = egui::Frame::NONE.inner_margin(6).show(ui, |ui| {
+            ui.set_width(268.0);
+            ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+            let mut action: Option<(&str, serde_json::Value)> = None;
+            let mut page: Option<&str> = None;
+            let sc = |app: &WordApp, id: &str| wc::shortcut_text(app, id);
+            if menu_row(ui, t, "New", &sc(&g.app, "file.new"), true).clicked() {
+                action = Some(("file.new", json!({})));
+            }
+            if menu_row(ui, t, "New from Template…", "", true).clicked() {
+                page = Some("new");
+            }
+            if menu_row(ui, t, "Open…", &sc(&g.app, "file.open"), true).clicked() {
+                action = Some(("file.open", json!({})));
+            }
+            let recent: Vec<String> = g.app.ui.recent.iter().take(5).cloned().collect();
+            if !recent.is_empty() {
+                menu_section(ui, t, "Open Recent");
+                for path in recent {
+                    let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
+                    if menu_row(ui, t, &name, "", true).on_hover_text(&path).clicked() {
+                        g.glass.recent_pick = Some(path);
+                    }
+                }
+            }
+            menu_separator(ui, t);
+            if menu_row(ui, t, "Save", &sc(&g.app, "file.save"), true).clicked() {
+                action = Some(("file.save", json!({})));
+            }
+            if menu_row(ui, t, "Save As…", &sc(&g.app, "file.saveAs"), true).clicked() {
+                action = Some(("file.saveAs", json!({})));
+            }
+            if menu_row(ui, t, "Export as PDF…", "", true).clicked() {
+                page = Some("export");
+            }
+            if menu_row(ui, t, "Print…", &sc(&g.app, "file.print"), true).clicked() {
+                page = Some("print");
+            }
+            menu_separator(ui, t);
+            if menu_row(ui, t, "Document Info", "", true).clicked() {
+                page = Some("info");
+            }
+            if menu_row(ui, t, "Settings…", "", true).clicked() {
+                page = Some("options");
+            }
+            if let Some((id, p)) = action {
+                g.glass.file_menu = false;
+                w::run(ui, &mut g.app, id, p);
+            }
+            if let Some(pg) = page {
+                g.glass.file_menu = false;
+                g.app.ui.backstage = true;
+                g.app.ui.backstage_page = pg.to_string();
+            }
         });
+        ui.painter().set(bg, crate::tokens::popover_shape(inner.response.rect, 16, t));
+    });
+    if let Some(path) = g.glass.recent_pick.take() {
+        g.glass.file_menu = false;
+        if let Err(e) = g.app.run("file.open", json!({"path": path})) {
+            g.app.status(e);
+        }
+    }
+    let close = ctx.input(|i| {
+        i.key_pressed(egui::Key::Escape)
+            || (i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p) && !anchor.contains(p)))
+    });
+    if close && open {
+        g.glass.file_menu = false;
+    }
+    if fade < 1.0 {
+        ctx.request_repaint();
+    }
 }
 
 /// Paint a progress ring: a full track and an arc for `progress` (0–1), starting at the top.
@@ -185,9 +380,7 @@ pub fn status_bar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 let label = format!("{} / {}", group_digits(done.words.max(0)), group_digits(i64::from(goals.daily)));
                 let lw = ui.ctx().fonts_mut(|f| f.layout_no_wrap(label.clone(), medium(12.0), t.text).size().x);
                 let (gr, gresp) = ui.allocate_exact_size(vec2(lw + 40.0, 28.0), Sense::click());
-                if let Some(fill) = crate::tokens::interaction_fill(&gresp, g.glass.goal_open, t) {
-                    paint_fill(ui.painter(), gr, radius::CAPSULE, fill);
-                }
+                crate::tokens::paint_state(ui, gr, radius::CAPSULE, &gresp, g.glass.goal_open, t);
                 ring(ui.painter(), pos2(gr.min.x + 16.0, gr.center().y), 8.0, 2.6, progress, t.fill, t.accent);
                 ui.painter().text(pos2(gr.min.x + 30.0, gr.center().y), Align2::LEFT_CENTER, label, medium(12.0), t.text);
                 g.glass.ring_rect = Some(gr);
@@ -208,12 +401,16 @@ pub fn status_bar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 if let Some((msg, at)) = g.app.status_msg.clone()
                     && wordcraft_ui_egui::now_ms() - at < 6000.0
                 {
+                    // Messages fade in, stay, and fade out over their last second.
+                    let age = (wordcraft_ui_egui::now_ms() - at) as f32 / 1000.0;
+                    let alpha = (age / 0.2).min(1.0).min((6.0 - age).clamp(0.0, 1.0));
+                    ui.ctx().request_repaint();
                     divider(ui, t);
                     let short: String = msg.chars().take(60).collect();
                     let font = medium(12.0);
                     let mw = ui.ctx().fonts_mut(|f| f.layout_no_wrap(short.clone(), font.clone(), t.accent).size().x);
                     let (r, _) = ui.allocate_exact_size(vec2(mw, 20.0), Sense::hover());
-                    ui.painter().text(pos2(r.min.x, r.center().y), Align2::LEFT_CENTER, short, font, t.accent);
+                    ui.painter().text(pos2(r.min.x, r.center().y), Align2::LEFT_CENTER, short, font, t.accent.gamma_multiply(alpha));
                 }
                 divider(ui, t);
                 ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
@@ -276,16 +473,22 @@ pub fn group_digits(n: i64) -> String {
 
 /// The writing-goal popover, above the status capsule.
 pub fn goal_popover(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
-    if !g.glass.goal_open {
+    // Fades and rises into place, and back down when it closes.
+    let fade = ctx.animate_bool_with_time(egui::Id::new("glass_goal_fade"), g.glass.goal_open, 0.16);
+    if fade <= 0.0 {
         return;
+    }
+    if fade < 1.0 {
+        ctx.request_repaint();
     }
     let Some(anchor) = g.glass.ring_rect else { return };
     let width = 300.0;
-    let pos = pos2(anchor.min.x, anchor.min.y - 12.0);
+    let pos = pos2(anchor.min.x, anchor.min.y - 12.0 + (1.0 - fade) * 8.0);
     let today = GlassApp::today();
     let area = egui::Area::new(egui::Id::new("glass_goal_popover")).order(egui::Order::Foreground).pivot(Align2::LEFT_BOTTOM).fixed_pos(pos).show(
         ctx,
         |ui| {
+            ui.multiply_opacity(fade);
             let bg = ui.painter().add(Shape::Noop);
             let inner = egui::Frame::NONE.inner_margin(16).show(ui, |ui| {
                 ui.set_width(width - 32.0);

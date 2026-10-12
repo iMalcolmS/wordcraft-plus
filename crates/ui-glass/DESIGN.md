@@ -58,18 +58,41 @@ stronger outline.
 
 ## Layout
 
-- **Title bar** — Quick Access capsule (Save, Undo, Redo, or the user's own) on the left; the
-  document name and its state (Edited / Saved / Not saved) centred; on the right, the writing
-  tools capsule (Typewriter, Split View, Snapshots, Version History), the command search capsule
-  and the Share button. On macOS it shares the band with the traffic lights.
-- **Ribbon** — one glass card: the tabs as a centred segmented control, then the tab's groups as
-  quiet rounded panels with their names underneath. Large buttons (26 pt icon over label) for
-  main actions, small ones (16 pt icon + label) stacked three to a column.
+- **Title band** (macOS) — beside the traffic lights, only the document's name and its state
+  (Edited / Saved / Not saved), centred, like any Mac window. Elsewhere the system title bar shows it.
+- **Toolbar** — one line, like a Mac unified toolbar: the Quick Access capsule on the left; the tabs
+  as a glass segmented control in the middle (the selected tab's pill glides to the tab you pick;
+  Developer and Zotero sit behind "More"); the writing tools capsule, search and Share on the right.
+- **Ribbon** — one glass card. Groups sit directly on it, separated by hairlines, never boxed
+  inside it; each group's name sits under its controls. A group that doesn't fit wraps whole to
+  the next row. Large buttons (26 pt icon over label) for main actions, small ones (16 pt icon +
+  label) stacked three to a column, icon toggles 28 × 28.
+- **File** — a glass menu under the File tab (New, Open, Open Recent, Save, Export, Print, Info,
+  Settings), not a full-window takeover. Templates, Print, Info and Settings open the full File view.
 - **Navigation** (View › Navigation Pane) — a glass card on the left: Headings | Pages.
 - **Canvas** — the pages on the canvas colour.
 - **Versions** — a glass card on the right: Snapshots | History.
 - **Status capsule** — centred at the bottom: goal ring, writing time, page, words, view buttons,
   zoom, Focus.
+
+## Motion
+
+Everything moves, briefly and quietly; nothing snaps.
+
+| What | Animation |
+|---|---|
+| Hover on any control | fill fades in/out, 120 ms |
+| Toggled state | accent tint eases in, 180 ms |
+| Tab change | selected pill glides, 240 ms; the new tab's controls fade in, 200 ms ease-out |
+| Focus mode | ribbon and panels slide away and back |
+| Navigation and Versions panels | slide in from and out to their edge |
+| File menu, goal popover | fade and rise into place, 140–160 ms |
+| Typewriter mode | the veil fades in and out, 250 ms |
+| Status messages | fade in, stay, fade out over their last second |
+
+Fonts: the UI font (Inter) at 13 pt for controls and menus, 11 pt for group names and secondary
+text, 13 pt semibold for the document name; font and size pickers are single rounded pop-up
+buttons with a chevron, Mac style.
 
 ## Tabs
 

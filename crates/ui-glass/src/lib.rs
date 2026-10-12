@@ -67,6 +67,15 @@ pub struct GlassState {
     /// Where the goal ring and the status capsule were drawn (the popover sits above them).
     pub(crate) ring_rect: Option<egui::Rect>,
     pub(crate) status_rect: Option<egui::Rect>,
+    /// The File menu, and the File tab it hangs from.
+    pub file_menu: bool,
+    pub file_anchor: Option<egui::Rect>,
+    pub(crate) recent_pick: Option<String>,
+    /// The ribbon tab last shown, and when it changed (for the cross-fade).
+    pub(crate) shown_tab: String,
+    pub(crate) tab_changed_at: f64,
+    /// The side panel last open, kept while it slides closed.
+    pub(crate) last_panel: Option<Panel>,
 }
 
 /// The Glass application: the WordCraft app plus the Glass chrome and features.
@@ -177,18 +186,17 @@ impl GlassApp {
             backstage::show(&mut self.app, ui);
         } else {
             let focus = self.app.session.view.focus_mode;
-            chrome::title_bar(self, ui, &t);
-            if !focus {
-                ribbon::show(self, ui, &t);
-            }
+            chrome::title_band(self, ui, &t);
+            chrome::toolbar(self, ui, &t);
+            // The ribbon, panels and panes slide away in Focus mode and back when it ends.
+            ribbon::show(self, ui, &t, !focus);
             chrome::status_bar(self, ui, &t);
-            if self.glass.panel.is_some() {
-                panels::versions(self, ui, &t);
+            if let Some(p) = self.glass.panel {
+                self.glass.last_panel = Some(p);
             }
+            panels::versions(self, ui, &t, self.glass.panel.is_some());
             let nav = self.app.session.view.nav_pane;
-            if nav && !focus {
-                panels::navigation(self, ui, &t);
-            }
+            panels::navigation(self, ui, &t, nav && !focus);
             if !focus {
                 // The original side panes (Styles, Comments, Clipboard…), except Navigation,
                 // which Glass draws itself.
@@ -196,12 +204,16 @@ impl GlassApp {
                 panes::show(&mut self.app, ui);
                 self.app.session.view.nav_pane = nav;
             }
-            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
-                canvas::show(&mut self.app, ui);
-                if self.glass.prefs.typewriter {
-                    typewriter::overlay(&mut self.app, ui);
-                }
-            });
+            let typewriter = ctx.animate_bool_with_time(egui::Id::new("glass_typewriter_fade"), self.glass.prefs.typewriter, 0.25);
+            egui::CentralPanel::default()
+                .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 0, right: 0, top: 6, bottom: 0 }))
+                .show(ui, |ui| {
+                    canvas::show(&mut self.app, ui);
+                    if typewriter > 0.0 {
+                        typewriter::overlay(&mut self.app, ui, typewriter);
+                    }
+                });
+            chrome::file_menu(self, &ctx, &t);
             chrome::goal_popover(self, &ctx, &t);
         }
         content_controls::popup(&mut self.app, &ctx);

@@ -14,7 +14,7 @@ use wordcraft_ui_egui::theme::{medium, regular, semibold};
 use wordcraft_ui_egui::{WordApp, icons, widgets as wc};
 
 use crate::GlassApp;
-use crate::tokens::{Tokens, interaction_fill, paint_fill, radius, space};
+use crate::tokens::{Tokens, radius};
 use crate::widgets::{self as w, BIG_H, params};
 
 /// Whether a command's button shows as pressed.
@@ -71,6 +71,8 @@ pub enum Item {
     /// A menu filled from the engine's theme list.
     Themes,
     Glass(Local, &'static str, &'static str),
+    /// An icon-only button (its label is the tooltip).
+    Icon(Cmd),
 }
 
 pub struct Group {
@@ -139,7 +141,7 @@ const HOME: &[Group] = &[
             Small(con("Show ¶", "view.marks", "pilcrow", On::Session(marks_on))),
         ],
     },
-    Group { name: "Styles", items: &[Item::Styles, Small(c("Styles Pane", "view.stylesPane", "stylesPane"))] },
+    Group { name: "Styles", items: &[Item::Styles, Item::Icon(c("Styles Pane", "view.stylesPane", "stylesPane"))] },
     Group {
         name: "Editing",
         items: &[
@@ -650,7 +652,7 @@ pub fn curated_ids() -> Vec<&'static str> {
         for g in curated(tab).unwrap_or(&[]) {
             for item in g.items {
                 match item {
-                    Item::Big(c) | Item::Small(c) => ids.push(c.id),
+                    Item::Big(c) | Item::Small(c) | Item::Icon(c) => ids.push(c.id),
                     Item::BigMenu(c, choices) | Item::SmallMenu(c, choices) => {
                         ids.push(c.id);
                         ids.extend(choices.iter().map(|(_, id, _)| *id));
@@ -705,34 +707,32 @@ pub fn tabs(app: &WordApp) -> Vec<String> {
 }
 
 /// The ribbon card for the current tab.
-pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
     let tab = g.app.ui.tab.clone();
+    let now = ui.input(|i| i.time);
+    if g.glass.shown_tab != tab {
+        g.glass.shown_tab = tab.clone();
+        g.glass.tab_changed_at = now;
+    }
+    // A new tab's controls fade in (200 ms, easing out) rather than snapping.
+    let p = (((now - g.glass.tab_changed_at) / 0.2) as f32).clamp(0.0, 1.0);
+    let fade = 1.0 - (1.0 - p).powi(3);
+    if p < 1.0 {
+        ui.ctx().request_repaint();
+    }
+    let mut open = expanded;
     egui::Panel::top("glass_ribbon")
         .show_separator_line(false)
-        .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 10, right: 10, top: 4, bottom: 6 }))
-        .show(ui, |ui| {
+        .resizable(false)
+        .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 14, right: 14, top: 0, bottom: 10 }))
+        .show_collapsible(ui, &mut open, |ui| {
             let bg = ui.painter().add(egui::Shape::Noop);
             let limit = ui.max_rect();
-            let inner = egui::Frame::NONE.inner_margin(space::RIBBON_PAD).show(ui, |ui| {
+            let inner = egui::Frame::NONE.inner_margin(egui::Margin { left: 16, right: 16, top: 12, bottom: 8 }).show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                // The tabs, as one segmented control.
-                let names = tabs(&g.app);
-                let labels: Vec<&str> = names.iter().map(String::as_str).collect();
-                let sel = names.iter().position(|n| *n == tab).unwrap_or(1);
-                ui.vertical_centered(|ui| {
-                    if let Some(i) = w::segmented(ui, t, &labels, sel, 32.0)
-                        && let Some(name) = names.get(i)
-                    {
-                        if name == "File" {
-                            g.app.ui.backstage = true;
-                        } else {
-                            g.app.ui.tab = name.clone();
-                        }
-                    }
-                });
-                ui.add_space(8.0);
+                ui.multiply_opacity(fade);
                 ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    ui.spacing_mut().item_spacing = vec2(0.0, 12.0);
                     let st = g.app.session.run("format.state", &json!({})).unwrap_or_default();
                     match curated(&tab) {
                         Some(groups) => {
@@ -764,36 +764,41 @@ pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
             // Never wider than the window: a group that doesn't fit wraps to the next row.
             let r = inner.response.rect;
             let r = Rect::from_min_max(r.min, pos2(r.max.x.min(limit.max.x), r.max.y));
-            let shapes = crate::tokens::glass_shape(r, radius::RIBBON, t);
-            ui.painter().set(bg, shapes);
+            ui.painter().set(bg, crate::tokens::glass_shape(r, radius::RIBBON, t));
         });
 }
 
-/// One group: a quiet rounded panel with its controls and, under them, its name.
+/// Space on each side of the hairline between two groups.
+const GROUP_GAP: f32 = 12.0;
+
+/// One group: its controls and, under them, its name. Groups sit directly on the ribbon's glass,
+/// separated by a hairline, never boxed inside it.
 fn group(ui: &mut Ui, t: &Tokens, name: &str, add: impl FnOnce(&mut Ui)) {
     // Groups are wrapped whole: if this one was wider last frame than the room left on the row,
     // start a new row first.
     let wid = egui::Id::new(("glass_group_width", name));
     let last: Option<f32> = ui.data(|d| d.get_temp(wid));
-    if last.is_some_and(|w| w > ui.available_width() + 0.5) {
+    let room = ui.max_rect().max.x - ui.cursor().min.x;
+    let at_start = ui.cursor().min.x <= ui.max_rect().min.x + 1.0;
+    if !at_start && last.is_some_and(|w| w + 2.0 * GROUP_GAP + 1.0 > room) {
         ui.end_row();
     }
-    let bg = ui.painter().add(egui::Shape::Noop);
-    let resp = egui::Frame::NONE.inner_margin(egui::Margin { left: 6, right: 6, top: 6, bottom: 4 }).show(ui, |ui| {
-        ui.vertical(|ui| {
+    if ui.cursor().min.x > ui.max_rect().min.x + 1.0 {
+        let (r, _) = ui.allocate_exact_size(vec2(2.0 * GROUP_GAP + 1.0, BIG_H + 18.0), Sense::hover());
+        ui.painter().vline(r.center().x, (r.min.y + 4.0)..=(r.max.y - 4.0), egui::Stroke::new(1.0, t.edge.gamma_multiply(0.55)));
+    }
+    let resp = ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing = vec2(0.0, 4.0);
+        ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
-            ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing = vec2(2.0, 2.0);
-                ui.set_min_height(BIG_H);
-                add(ui);
-            });
-            let w = ui.min_rect().width();
-            let (r, _) = ui.allocate_exact_size(vec2(w, 14.0), Sense::hover());
-            ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, name, regular(10.5), t.text_dim);
+            ui.set_min_height(BIG_H);
+            add(ui);
         });
+        let w = ui.min_rect().width();
+        let (r, _) = ui.allocate_exact_size(vec2(w, 14.0), Sense::hover());
+        ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, name, regular(11.0), t.text_dim);
     });
     let r = resp.response.rect;
-    ui.painter().set(bg, egui::Shape::rect_filled(r, egui::CornerRadius::same(radius::GROUP), t.fill));
     if last.is_none_or(|w| (w - r.width()).abs() > 0.5) {
         ui.data_mut(|d| d.insert_temp(wid, r.width()));
         ui.ctx().request_repaint();
@@ -871,6 +876,10 @@ fn items(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, list: &'static [Item], st: &
             Item::Styles => styles_gallery(&mut g.app, ui, t),
             Item::Themes => themes_menu(&mut g.app, ui, t),
             Item::Glass(local, label, icon) => glass_button(g, ui, t, *local, label, icon),
+            Item::Icon(cmd) => {
+                let on = is_on(&g.app, st, cmd.on);
+                toggle(ui, &mut g.app, t, cmd.icon, cmd.label, cmd.id, on);
+            }
         }
         i += 1;
     }
@@ -916,9 +925,7 @@ fn glass_button(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, local: Local, label: 
     let font = regular(11.0);
     let text_w = lines.iter().map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap((*l).to_string(), font.clone(), t.text).size().x)).fold(0.0, f32::max);
     let (r, resp) = ui.allocate_exact_size(vec2((text_w + 14.0).max(50.0), BIG_H), Sense::click());
-    if let Some(fill) = interaction_fill(&resp, on, t) {
-        paint_fill(ui.painter(), r, radius::BUTTON, fill);
-    }
+    crate::tokens::paint_state(ui, r, radius::BUTTON, &resp, on, t);
     let c = if on { t.accent } else { t.text };
     icons::paint(ui.painter(), Rect::from_center_size(pos2(r.center().x, r.min.y + 19.0), vec2(26.0, 26.0)), icon, c, t.accent);
     let mut y = r.min.y + 37.0;
@@ -935,43 +942,25 @@ fn glass_button(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, local: Local, label: 
 fn font_group(app: &mut WordApp, ui: &mut Ui, t: &Tokens, st: &Value) {
     let flag = |k: &str| st.get(k).and_then(Value::as_bool).unwrap_or(false);
     ui.vertical(|ui| {
-        ui.spacing_mut().item_spacing = vec2(4.0, 6.0);
+        ui.spacing_mut().item_spacing = vec2(6.0, 8.0);
         ui.add_space(2.0);
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = vec2(4.0, 0.0);
-            let font = st.get("font").and_then(Value::as_str).unwrap_or("").to_string();
-            let font = app.previews.font_shown(&font);
-            let fams = app.previews.families();
-            let prev = app.previews.font_preview_fn();
-            if let Some(f) = wc::font_combo(ui, "glass_font", 148.0, &font, &fams, Some(&*prev)) {
-                if f == wc::ADD_FONT {
-                    w::run(ui, app, "font.add", json!({}));
-                } else {
-                    let f = app.previews.font_stored(&f);
-                    w::run(ui, app, "format.font", json!({"name": f}));
-                }
-            }
-            let size =
-                st.get("size").and_then(Value::as_f64).map(|s| if s.fract() == 0.0 { format!("{s:.0}") } else { format!("{s}") }).unwrap_or_default();
-            let sizes: Vec<String> =
-                wordcraft_engine::cmd::format::SIZES.iter().map(|s| if s.fract() == 0.0 { format!("{s:.0}") } else { s.to_string() }).collect();
-            if let Some(v) = wc::combo(ui, "glass_size", 50.0, &size, &sizes, None)
-                && let Ok(x) = v.trim().parse::<f64>()
-            {
-                w::run(ui, app, "format.size", json!({"size": x}));
-            }
+            ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
+            font_picker(app, ui, t, st);
+            size_picker(app, ui, t, st);
+            ui.add_space(2.0);
             toggle(ui, app, t, "grow", "Increase Font Size", "format.growFont", false);
             toggle(ui, app, t, "shrink", "Decrease Font Size", "format.shrinkFont", false);
         });
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing = vec2(1.0, 0.0);
+            ui.spacing_mut().item_spacing = vec2(2.0, 0.0);
             toggle(ui, app, t, "bold", "Bold", "format.bold", flag("bold"));
             toggle(ui, app, t, "italic", "Italic", "format.italic", flag("italic"));
             toggle(ui, app, t, "underline", "Underline", "format.underline", flag("underline"));
             toggle(ui, app, t, "strike", "Strikethrough", "format.strikethrough", flag("strike"));
             toggle(ui, app, t, "subscript", "Subscript", "format.subscript", flag("subscript"));
             toggle(ui, app, t, "superscript", "Superscript", "format.superscript", flag("superscript"));
-            ui.add_space(4.0);
+            ui.add_space(6.0);
             let r = toggle_menu(ui, t, "highlight", "Text Highlight Colour");
             colour_menu(
                 app,
@@ -991,12 +980,90 @@ fn font_group(app: &mut WordApp, ui: &mut Ui, t: &Tokens, st: &Value) {
     });
 }
 
+/// A pop-up button in the Mac style: one rounded field with its value and a chevron, no boxes
+/// inside boxes. Returns its response; the caller attaches the menu.
+fn popup_button(ui: &mut Ui, t: &Tokens, text: &str, width: f32) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(vec2(width, 28.0), Sense::click());
+    ui.painter().rect_filled(r, egui::CornerRadius::same(8), t.paper);
+    ui.painter().rect_stroke(r, egui::CornerRadius::same(8), egui::Stroke::new(0.75, t.edge), egui::StrokeKind::Outside);
+    crate::tokens::paint_state(ui, r, 8, &resp, false, t);
+    let max_chars = ((width - 34.0) / 6.8).max(3.0) as usize;
+    let shown: String =
+        if text.chars().count() > max_chars { format!("{}…", text.chars().take(max_chars).collect::<String>()) } else { text.to_string() };
+    ui.painter().text(pos2(r.min.x + 10.0, r.center().y), egui::Align2::LEFT_CENTER, shown, regular(13.0), t.text);
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.max.x - 14.0, r.center().y), vec2(12.0, 12.0)), "chevronDown", t.text_dim, t.text_dim);
+    resp
+}
+
+/// The font menu: a search field over the families, each shown in its own face.
+fn font_picker(app: &mut WordApp, ui: &mut Ui, t: &Tokens, st: &Value) {
+    let font = st.get("font").and_then(Value::as_str).unwrap_or("").to_string();
+    let shown = app.previews.font_shown(&font);
+    let resp = popup_button(ui, t, if shown.is_empty() { "Font" } else { &shown }, 168.0).on_hover_text("Font");
+    egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        ui.set_width(286.0);
+        let qid = egui::Id::new("glass_font_query");
+        let mut q: String = ui.data(|d| d.get_temp(qid)).unwrap_or_default();
+        let field = ui.add(egui::TextEdit::singleline(&mut q).hint_text("Search fonts").desired_width(270.0).margin(vec2(8.0, 6.0)));
+        if field.changed() {
+            ui.data_mut(|d| d.insert_temp(qid, q.clone()));
+        }
+        if !field.has_focus() && q.is_empty() {
+            field.request_focus();
+        }
+        ui.add_space(4.0);
+        let fams = app.previews.families();
+        let prev = app.previews.font_preview_fn();
+        let mut chosen: Option<String> = None;
+        egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+            for i in wc::font_matches(&q, &fams) {
+                let Some(name) = fams.get(i) else { continue };
+                if prev(ui, name).clicked() {
+                    chosen = Some(name.clone());
+                }
+            }
+        });
+        ui.separator();
+        if ui.button("Add Font…").clicked() {
+            chosen = Some(wc::ADD_FONT.to_string());
+        }
+        if let Some(f) = chosen {
+            if f == wc::ADD_FONT {
+                w::run(ui, app, "font.add", json!({}));
+            } else {
+                let f = app.previews.font_stored(&f);
+                w::run(ui, app, "format.font", json!({"name": f}));
+            }
+            ui.data_mut(|d| d.remove::<String>(qid));
+            ui.close();
+        }
+    });
+}
+
+/// The size menu: the standard sizes.
+fn size_picker(app: &mut WordApp, ui: &mut Ui, t: &Tokens, st: &Value) {
+    let size = st.get("size").and_then(Value::as_f64).map(|s| if s.fract() == 0.0 { format!("{s:.0}") } else { format!("{s}") }).unwrap_or_default();
+    let resp = popup_button(ui, t, &size, 62.0).on_hover_text("Font Size");
+    egui::Popup::menu(&resp).show(|ui| {
+        ui.set_min_width(80.0);
+        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+            for s in wordcraft_engine::cmd::format::SIZES {
+                let label = if s.fract() == 0.0 { format!("{s:.0}") } else { s.to_string() };
+                if ui.selectable_label(label == size, label.as_str()).clicked() {
+                    w::run(ui, app, "format.size", json!({"size": s}));
+                    ui.close();
+                }
+            }
+        });
+    });
+}
+
 /// A 26×24 icon toggle that runs a command.
 fn toggle(ui: &mut Ui, app: &mut WordApp, t: &Tokens, icon: &str, tip: &str, id: &str, on: bool) {
     let enabled = wc::enabled(app, id);
-    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
-    if enabled && let Some(fill) = interaction_fill(&resp, on, t) {
-        paint_fill(ui.painter(), r, 8, fill);
+    let (r, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+    if enabled {
+        crate::tokens::paint_state(ui, r, 8, &resp, on, t);
     }
     let c = if !enabled {
         t.text_disabled
@@ -1016,10 +1083,8 @@ fn toggle(ui: &mut Ui, app: &mut WordApp, t: &Tokens, icon: &str, tip: &str, id:
 
 /// A 26×24 icon button that opens a menu.
 fn toggle_menu(ui: &mut Ui, t: &Tokens, icon: &str, tip: &str) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
-    if let Some(fill) = interaction_fill(&resp, false, t) {
-        paint_fill(ui.painter(), r, 8, fill);
-    }
+    let (r, resp) = ui.allocate_exact_size(vec2(28.0, 28.0), Sense::click());
+    crate::tokens::paint_state(ui, r, 8, &resp, false, t);
     icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(16.0, 16.0)), icon, t.text, t.accent);
     resp.on_hover_text(tip)
 }
@@ -1049,7 +1114,7 @@ fn styles_gallery(app: &mut WordApp, ui: &mut Ui, t: &Tokens) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing = vec2(5.0, 0.0);
         for (label, id, p) in STYLES {
-            let (r, resp) = ui.allocate_exact_size(vec2(66.0, BIG_H - 4.0), Sense::click());
+            let (r, resp) = ui.allocate_exact_size(vec2(62.0, BIG_H - 4.0), Sense::click());
             let r = r.translate(vec2(0.0, 2.0));
             let selected = current.as_deref().is_some_and(|s| s.replace(' ', "").eq_ignore_ascii_case(&label.replace(' ', "")));
             let card = egui::CornerRadius::same(10);

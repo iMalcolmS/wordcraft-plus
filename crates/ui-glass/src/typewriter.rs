@@ -14,7 +14,7 @@ pub fn band(top: f32, h: f32) -> (f32, f32) {
     (top - h * ABOVE, top + h * BELOW)
 }
 
-pub fn overlay(app: &mut WordApp, ui: &Ui) {
+pub fn overlay(app: &mut WordApp, ui: &Ui, strength: f32) {
     let Some(area) = app.canvas.canvas_rect else { return };
     let Some((caret, h)) = canvas::caret_screen(app) else { return };
     let h = h.clamp(6.0, 200.0);
@@ -25,6 +25,7 @@ pub fn overlay(app: &mut WordApp, ui: &Ui) {
     } else {
         Color32::from_rgba_unmultiplied(255, 255, 255, 170)
     };
+    let veil = veil.gamma_multiply(strength.clamp(0.0, 1.0));
     let painter = ui.painter().with_clip_rect(area);
     for page in app.canvas.page_rects.iter().filter(|r| r.intersects(area)) {
         if top > page.min.y {

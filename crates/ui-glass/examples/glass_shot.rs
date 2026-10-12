@@ -27,7 +27,9 @@ fn main() {
     } else {
         wordcraft_engine::sample::sample_document()
     };
-    let app = WordApp::new(Session::new(doc), Services::default()).with_control(rx);
+    let mut app = WordApp::new(Session::new(doc), Services::default()).with_control(rx);
+    // `{"mac": true}`: lay out for macOS's integrated title bar (the traffic lights aren't drawn).
+    app.integrated_titlebar = lines.iter().any(|l| l.get("mac").is_some());
     let w = lines.iter().find_map(|l| l.get("width").and_then(|v| v.as_f64())).unwrap_or(1440.0) as f32;
     let h = lines.iter().find_map(|l| l.get("height").and_then(|v| v.as_f64())).unwrap_or(900.0) as f32;
     let mut harness =
@@ -74,6 +76,12 @@ fn main() {
             harness.state_mut().glass.prefs.goals.today_mut(&today).words = n;
             harness.state_mut().glass.prefs.goals.today_mut(&today).secs = 42.0 * 60.0;
             step_n(&mut harness, 2);
+        } else if l.get("file").is_some() {
+            // Open the File menu under where the File tab sits.
+            let g = harness.state_mut();
+            g.glass.file_menu = true;
+            g.glass.file_anchor = Some(egui::Rect::from_min_size(egui::pos2(240.0, 40.0), egui::vec2(52.0, 28.0)));
+            step_n(&mut harness, 20);
         } else if let Some(i) = l.get("select").and_then(|v| v.as_u64()) {
             harness.state_mut().glass.selected_version = Some(i as usize);
             step_n(&mut harness, 2);
