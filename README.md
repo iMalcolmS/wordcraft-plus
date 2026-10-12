@@ -1,4 +1,4 @@
-<h1 align="center">WordCraft Glass</h1>
+  <h1 align="center">WordCraft +Plus</h1>
 
 <p align="center">
   <b>A Liquid Glass front end for <a href="https://github.com/storytold/wordcraft">WordCraft</a>, with a Writer Pro mode for long-form writing.</b>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img alt="WordCraft Glass: the Writer Pro workspace with the Binder, the page and the Inspector" src="docs/glass/04-writer-pro.png" width="900">
+  <img alt="WordCraft +Plus: the Writer Pro workspace with the Binder, the page and the Inspector" src="docs/glass/04-writer-pro.png" width="900">
 </p>
 
 ---
@@ -29,7 +29,7 @@
 processor by the ArtCraft team. WordCraft provides the document engine (layout, `.docx` I/O,
 styles, tables, track changes, references) and its own classic, Word-style interface.
 
-Glass replaces only the window around the page. It lives in its own crate
++Plus replaces only the window around the page. It lives in its own crate
 (`crates/ui-glass`) and app (`apps/wordcraft-glass`), uses WordCraft's public building blocks,
 and **does not change the original interface**, which keeps working unchanged
 (`cargo run -p wordcraft`).
@@ -45,7 +45,7 @@ It is an independent project and is not affiliated with or endorsed by ArtCraft 
   content, animated switches and panels). Light, dark and automatic.
 - **Mac-style toolbar**: Quick Access, the tabs as a segmented control, writing tools, command
   search and Share on one line. On macOS the tab bar sits beside the traffic lights.
-- **The complete Word ribbon on glass**: Home, Insert, Layout, References, Review and View, with
+- **The complete Word ribbon**: Home, Insert, Layout, References, Review and View, with
   Draw, Design, Mailings, Developer, Zotero and Help under **More**. Every group, gallery, split
   button, dialog launcher and Alt key tip from WordCraft's ribbon works. One row that scrolls
   sideways when the window is narrow.
@@ -55,7 +55,7 @@ It is an independent project and is not affiliated with or endorsed by ArtCraft 
 - **Home page**: today's writing goal, the week at a glance, templates (blank, handbook, letter,
   résumé, report), recent files, and the Writer Pro switch.
 - **Side panels** that slide in, **resize** by dragging their edge (saved, with sensible
-  limits), and can **float over the page as frosted glass**.
+  limits).
 - **Navigation pane** with headings and real page thumbnails.
 - **Appearance panel**: theme, seven accent colours, four window tones, glass tint, Reduce
   Transparency, interface size, animations, dark page, and every writing aid below.
@@ -138,7 +138,7 @@ The original interface is still there: `cargo run --release -p wordcraft`.
 | `crates/ui-glass/examples/glass_shot.rs` | Headless screenshots of the app (how the images above were made) |
 | `apps/wordcraft-glass` | The desktop app |
 
-Glass follows WordCraft's rules: everything the user does runs through WordCraft commands (so
++Plus follows WordCraft's rules: everything the user does runs through WordCraft commands (so
 undo, shortcuts and file formats behave the same), no `unwrap` or panics in app code, and no
 third-party icons or images (every icon is drawn in code).
 
@@ -152,9 +152,9 @@ third-party icons or images (every icon is drawn in code).
 
 ## Credits and licence
 
-WordCraft Glass is built on [WordCraft](https://github.com/storytold/wordcraft) by the ArtCraft
+WordCraft +Plus is built on [WordCraft](https://github.com/storytold/wordcraft) by the ArtCraft
 team and the WordCraft contributors; see [README-WordCraft.md](README-WordCraft.md) for the
 original project. Like WordCraft, it is licensed under either of [MIT](LICENSE-MIT) or
 [Apache-2.0](LICENSE-APACHE), at your option.
 
-Glass design and features by Malcolm ([@iMalcolmS](https://github.com/iMalcolmS)).
+ +Plus design and features by Malcolm ([@iMalcolmS](https://github.com/iMalcolmS)).
