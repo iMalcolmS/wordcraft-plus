@@ -191,3 +191,28 @@ pub fn quiet_button(ui: &mut Ui, t: &Tokens, label: &str, width: Option<f32>, he
     ui.painter().text(r.center(), Align2::CENTER_CENTER, label, font, t.text);
     resp
 }
+
+/// A Mac-style switch. Flips `on` when clicked (the response is marked changed); the knob slides.
+pub fn switch(ui: &mut Ui, t: &Tokens, on: &mut bool) -> Response {
+    let (r, mut resp) = ui.allocate_exact_size(vec2(42.0, 24.0), Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let a = ui.ctx().animate_bool_with_time(resp.id.with("switch"), *on, 0.18);
+    let off = t.pressed;
+    let track = if a <= 0.0 { off } else { lerp(off, t.accent, a) };
+    ui.painter().rect_filled(r, egui::CornerRadius::same(12), track);
+    let x = r.min.x + 12.0 + a * (r.width() - 24.0);
+    let knob = egui::epaint::Shadow { offset: [0, 1], blur: 4, spread: 0, color: egui::Color32::from_black_alpha(50) };
+    let kr = Rect::from_center_size(pos2(x, r.center().y), vec2(20.0, 20.0));
+    ui.painter().add(knob.as_shape(kr, egui::CornerRadius::same(10)));
+    ui.painter().circle_filled(kr.center(), 10.0, egui::Color32::WHITE);
+    resp
+}
+
+fn lerp(a: egui::Color32, b: egui::Color32, t: f32) -> egui::Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let m = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
+    egui::Color32::from_rgba_premultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), m(a.a(), b.a()))
+}

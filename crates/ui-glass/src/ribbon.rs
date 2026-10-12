@@ -57,6 +57,16 @@ pub enum Local {
     Snapshots,
     History,
     Goals,
+    /// Writer Pro: the views and tools of the Writer tab.
+    Page,
+    Corkboard,
+    Outliner,
+    Binder,
+    Scratchpad,
+    CutToScratchpad,
+    Pacing,
+    Sprint,
+    Appearance,
 }
 
 pub enum Item {
@@ -613,7 +623,41 @@ const VIEW: &[Group] = &[
             ),
             Small(c("Dark Page", "view.darkMode", "darkMode")),
             Small(c("Macros", "tools.macros", "macros")),
+            Item::Glass(Local::Appearance, "More\nAppearance", "interfaceTheme"),
         ],
+    },
+];
+
+const WRITER: &[Group] = &[
+    Group {
+        name: "Views",
+        items: &[
+            Item::Glass(Local::Page, "Page", "printLayout"),
+            Item::Glass(Local::Corkboard, "Corkboard", "multiplePages"),
+            Item::Glass(Local::Outliner, "Outliner", "outline"),
+        ],
+    },
+    Group { name: "Project", items: &[Item::Glass(Local::Binder, "Binder", "navPane")] },
+    Group {
+        name: "Draft",
+        items: &[
+            Item::Glass(Local::CutToScratchpad, "Cut to\nScratchpad", "cut"),
+            Item::Glass(Local::Scratchpad, "Scratchpad", "paste"),
+            Item::Glass(Local::Typewriter, "Typewriter", "focus"),
+            Item::Big(con("Focus", "view.focus", "focus", On::Session(focus_on))),
+        ],
+    },
+    Group {
+        name: "Insight",
+        items: &[
+            Item::Glass(Local::Pacing, "Pacing", "wordCount"),
+            Item::Glass(Local::Sprint, "Sprint", "replay"),
+            Item::Glass(Local::Goals, "Writing\nGoals", "wordCount"),
+        ],
+    },
+    Group {
+        name: "Versions",
+        items: &[Item::Glass(Local::Snapshots, "Snapshots", "screenshot"), Item::Glass(Local::History, "Version\nHistory", "replay")],
     },
 ];
 
@@ -641,6 +685,7 @@ pub fn curated(tab: &str) -> Option<&'static [Group]> {
         "Review" => REVIEW,
         "View" => VIEW,
         "Help" => HELP,
+        "Writer" => WRITER,
         _ => return None,
     })
 }
@@ -648,7 +693,7 @@ pub fn curated(tab: &str) -> Option<&'static [Group]> {
 /// Every command id the curated tabs use (tests check they all exist).
 pub fn curated_ids() -> Vec<&'static str> {
     let mut ids = Vec::new();
-    for tab in ["Home", "Insert", "Draw", "Design", "Layout", "References", "Mailings", "Review", "View", "Help"] {
+    for tab in ["Home", "Insert", "Draw", "Design", "Layout", "References", "Mailings", "Review", "View", "Help", "Writer"] {
         for g in curated(tab).unwrap_or(&[]) {
             for item in g.items {
                 match item {
@@ -693,10 +738,13 @@ fn registry_groups(app: &WordApp, tab: &str) -> Vec<(String, Vec<(&'static str, 
 }
 
 /// The tabs shown, in order: File, the main tabs, then the contextual ones for the selection.
-pub fn tabs(app: &WordApp) -> Vec<String> {
+pub fn tabs(app: &WordApp, pro: bool) -> Vec<String> {
     let mut v: Vec<String> = vec!["File".into()];
     for e in app.session.ribbon.tabs().iter().filter(|e| !e.hidden) {
         v.push(e.name.clone());
+        if pro && e.name == "Home" {
+            v.push("Writer".into());
+        }
     }
     for ct in wordcraft_ui_egui::ribbon::contextual_tabs(&app.session) {
         if !v.iter().any(|t| t == ct) {
@@ -706,17 +754,20 @@ pub fn tabs(app: &WordApp) -> Vec<String> {
     v
 }
 
-/// The ribbon card for the current tab.
+/// The ribbon card for the current tab: one glass card, one row. When the window is too narrow
+/// for every group, the row scrolls sideways (trackpad, wheel or drag) with soft edges showing
+/// there is more, instead of wrapping groups onto a second row.
 pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
     let tab = g.app.ui.tab.clone();
     let now = ui.input(|i| i.time);
-    if g.glass.shown_tab != tab {
+    let changed = g.glass.shown_tab != tab;
+    if changed {
         g.glass.shown_tab = tab.clone();
         g.glass.tab_changed_at = now;
     }
-    // A new tab's controls fade in (200 ms, easing out) rather than snapping.
-    let p = (((now - g.glass.tab_changed_at) / 0.2) as f32).clamp(0.0, 1.0);
-    let fade = 1.0 - (1.0 - p).powi(3);
+    // A new tab's controls fade in and slide a little (220 ms, easing out) rather than snapping.
+    let p = (((now - g.glass.tab_changed_at) / 0.22) as f32).clamp(0.0, 1.0);
+    let ease = 1.0 - (1.0 - p).powi(3);
     if p < 1.0 {
         ui.ctx().request_repaint();
     }
@@ -726,46 +777,150 @@ pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
         .resizable(false)
         .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 14, right: 14, top: 0, bottom: 10 }))
         .show_collapsible(ui, &mut open, |ui| {
-            let bg = ui.painter().add(egui::Shape::Noop);
-            let limit = ui.max_rect();
-            let inner = egui::Frame::NONE.inner_margin(egui::Margin { left: 16, right: 16, top: 12, bottom: 8 }).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.multiply_opacity(fade);
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = vec2(0.0, 12.0);
-                    let st = g.app.session.run("format.state", &json!({})).unwrap_or_default();
-                    match curated(&tab) {
-                        Some(groups) => {
-                            for grp in groups {
-                                group(ui, t, grp.name, |ui| {
-                                    items(g, ui, t, grp.items, &st);
-                                });
-                            }
-                        }
-                        None => {
-                            let groups = registry_groups(&g.app, &tab);
-                            if groups.is_empty() {
-                                ui.label(egui::RichText::new("Nothing here yet for this tab.").color(t.text_dim));
-                            }
-                            for (name, cmds) in groups {
-                                group(ui, t, &name, |ui| {
-                                    small_columns(ui, |ui, i| {
-                                        let (id, label) = cmds.get(i)?;
-                                        let icon = wc::command_icon(id);
-                                        w::small(ui, &mut g.app, t, icon, label, id, json!({}), false, false);
-                                        Some(())
-                                    });
-                                });
-                            }
-                        }
+            let card = ui.max_rect();
+            let card = Rect::from_min_size(card.min, vec2(card.width(), BIG_H + 18.0 + 4.0 + 20.0));
+            ui.painter().add(crate::tokens::glass_shape(card, radius::RIBBON, t));
+            let (_, _) = ui.allocate_exact_size(card.size(), Sense::hover());
+            let view = card.shrink2(vec2(14.0, 0.0));
+            // A chevron click glides the row by most of its width.
+            let target_id = egui::Id::new("glass_ribbon_target");
+            let anim_id = egui::Id::new("glass_ribbon_glide");
+            let target: Option<f32> = ui.data(|d| d.get_temp(target_id));
+            // A vertical wheel over the ribbon scrolls it sideways, as a Mac toolbar does.
+            if ui.rect_contains_pointer(view) {
+                ui.ctx().input_mut(|i| {
+                    if i.smooth_scroll_delta.x.abs() < 0.5 && i.smooth_scroll_delta.y.abs() > 0.0 && !i.modifiers.command {
+                        i.smooth_scroll_delta.x = i.smooth_scroll_delta.y;
+                        i.smooth_scroll_delta.y = 0.0;
                     }
                 });
+            }
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(view).layout(egui::Layout::left_to_right(egui::Align::Min)));
+            child.set_clip_rect(view.intersect(ui.clip_rect()));
+            let mut area = egui::ScrollArea::horizontal()
+                .id_salt("glass_ribbon_scroll")
+                .auto_shrink([false, true])
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+            if changed {
+                area = area.horizontal_scroll_offset(0.0);
+                ui.data_mut(|d| d.remove::<f32>(target_id));
+            } else if let Some(goal) = target {
+                let x = ui.ctx().animate_value_with_time(anim_id, goal, 0.28);
+                area = area.horizontal_scroll_offset(x);
+                if (x - goal).abs() < 0.5 {
+                    ui.data_mut(|d| d.remove::<f32>(target_id));
+                }
+            }
+            let out = area.show(&mut child, |ui| {
+                ui.add_space(6.0);
+                ui.vertical(|ui| {
+                    ui.add_space(12.0 + 6.0 * (1.0 - ease));
+                    ui.multiply_opacity(ease);
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                        let st = g.app.session.run("format.state", &json!({})).unwrap_or_default();
+                        match curated(&tab) {
+                            Some(groups) => {
+                                for (k, grp) in groups.iter().enumerate() {
+                                    group(ui, t, grp.name, k == 0, |ui| {
+                                        items(g, ui, t, grp.items, &st);
+                                    });
+                                }
+                            }
+                            None => {
+                                let groups = registry_groups(&g.app, &tab);
+                                if groups.is_empty() {
+                                    ui.label(egui::RichText::new("Nothing here yet for this tab.").color(t.text_dim));
+                                }
+                                for (k, (name, cmds)) in groups.into_iter().enumerate() {
+                                    group(ui, t, &name, k == 0, |ui| {
+                                        small_columns(ui, |ui, i| {
+                                            let (id, label) = cmds.get(i)?;
+                                            let icon = wc::command_icon(id);
+                                            w::small(ui, &mut g.app, t, icon, label, id, json!({}), false, false);
+                                            Some(())
+                                        });
+                                    });
+                                }
+                            }
+                        }
+                        ui.add_space(8.0);
+                    });
+                });
             });
-            // Never wider than the window: a group that doesn't fit wraps to the next row.
-            let r = inner.response.rect;
-            let r = Rect::from_min_max(r.min, pos2(r.max.x.min(limit.max.x), r.max.y));
-            ui.painter().set(bg, crate::tokens::glass_shape(r, radius::RIBBON, t));
+            // Soft edges where more groups wait off-card, and a thin indicator of where you are.
+            let offset = out.state.offset.x;
+            let content = out.content_size.x;
+            let shown = out.inner_rect.width();
+            if content > shown + 1.0 {
+                let left = ui.ctx().animate_bool_with_time(egui::Id::new("glass_ribbon_left"), offset > 1.0, 0.15);
+                let right = ui.ctx().animate_bool_with_time(egui::Id::new("glass_ribbon_right"), offset < content - shown - 1.0, 0.15);
+                let painter = ui.painter().with_clip_rect(card.shrink(1.0));
+                // What the glass looks like over the window: the fade blends into it.
+                let a = 1.0 - f32::from(t.glass.a()) / 255.0;
+                let mix = |g: u8, c: u8| (f32::from(g) + f32::from(c) * a).round().clamp(0.0, 255.0) as u8;
+                let base = egui::Color32::from_rgb(mix(t.glass.r(), t.canvas.r()), mix(t.glass.g(), t.canvas.g()), mix(t.glass.b(), t.canvas.b()));
+                edge_fade(&painter, Rect::from_min_max(view.min, pos2(view.min.x + 56.0, view.max.y)), base, left, true);
+                edge_fade(&painter, Rect::from_min_max(pos2(view.max.x - 56.0, view.min.y), view.max), base, right, false);
+                let max = (content - shown).max(0.0);
+                for (side, strength) in [(-1.0f32, left), (1.0, right)] {
+                    if strength <= 0.01 {
+                        continue;
+                    }
+                    let cx = if side < 0.0 { view.min.x + 14.0 } else { view.max.x - 14.0 };
+                    let r = Rect::from_center_size(pos2(cx, card.center().y - 6.0), vec2(26.0, 26.0));
+                    let resp = ui.interact(r, egui::Id::new(("glass_ribbon_chevron", side as i32)), Sense::click()).on_hover_text(if side < 0.0 {
+                        "Scroll left"
+                    } else {
+                        "More"
+                    });
+                    let hover = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered(), 0.12);
+                    painter.add(crate::tokens::glass_shape(r, radius::CAPSULE, t));
+                    if hover > 0.0 {
+                        painter.rect_filled(r, 13.0, t.hover.gamma_multiply(hover));
+                    }
+                    let c = r.center();
+                    let st = egui::Stroke::new(1.6, t.text.gamma_multiply(strength));
+                    painter.line_segment([pos2(c.x - 2.0 * side, c.y - 5.0), pos2(c.x + 2.5 * side, c.y)], st);
+                    painter.line_segment([pos2(c.x + 2.5 * side, c.y), pos2(c.x - 2.0 * side, c.y + 5.0)], st);
+                    if resp.clicked() {
+                        let goal = (offset + side * shown * 0.75).clamp(0.0, max);
+                        ui.ctx().animate_value_with_time(anim_id, offset, 0.0);
+                        ui.data_mut(|d| d.insert_temp(target_id, goal));
+                        ui.ctx().request_repaint();
+                    }
+                }
+                let track_w = (card.width() * 0.18).clamp(60.0, 160.0);
+                let track = Rect::from_center_size(pos2(card.center().x, card.max.y - 6.0), vec2(track_w, 3.0));
+                let hover = ui.ctx().animate_bool_with_time(egui::Id::new("glass_ribbon_bar"), ui.rect_contains_pointer(card), 0.2);
+                if hover > 0.0 {
+                    painter.rect_filled(track, 2.0, t.text_dim.gamma_multiply(0.15 * hover));
+                    let frac = (shown / content).clamp(0.1, 1.0);
+                    let pos = (offset / (content - shown).max(1.0)).clamp(0.0, 1.0);
+                    let thumb_w = track_w * frac;
+                    let thumb = Rect::from_min_size(pos2(track.min.x + (track_w - thumb_w) * pos, track.min.y), vec2(thumb_w, 3.0));
+                    painter.rect_filled(thumb, 2.0, t.text_dim.gamma_multiply(0.55 * hover));
+                }
+            }
         });
+}
+
+/// A horizontal fade from the card's colour to clear, `strength` 0–1.
+fn edge_fade(p: &egui::Painter, r: Rect, base: egui::Color32, strength: f32, from_left: bool) {
+    if strength <= 0.0 {
+        return;
+    }
+    let solid = base.gamma_multiply(strength);
+    let clear = egui::Color32::TRANSPARENT;
+    let (l, rgt) = if from_left { (solid, clear) } else { (clear, solid) };
+    let mut mesh = egui::Mesh::default();
+    mesh.colored_vertex(r.left_top(), l);
+    mesh.colored_vertex(r.right_top(), rgt);
+    mesh.colored_vertex(r.right_bottom(), rgt);
+    mesh.colored_vertex(r.left_bottom(), l);
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    p.add(egui::Shape::mesh(mesh));
 }
 
 /// Space on each side of the hairline between two groups.
@@ -773,21 +928,12 @@ const GROUP_GAP: f32 = 12.0;
 
 /// One group: its controls and, under them, its name. Groups sit directly on the ribbon's glass,
 /// separated by a hairline, never boxed inside it.
-fn group(ui: &mut Ui, t: &Tokens, name: &str, add: impl FnOnce(&mut Ui)) {
-    // Groups are wrapped whole: if this one was wider last frame than the room left on the row,
-    // start a new row first.
-    let wid = egui::Id::new(("glass_group_width", name));
-    let last: Option<f32> = ui.data(|d| d.get_temp(wid));
-    let room = ui.max_rect().max.x - ui.cursor().min.x;
-    let at_start = ui.cursor().min.x <= ui.max_rect().min.x + 1.0;
-    if !at_start && last.is_some_and(|w| w + 2.0 * GROUP_GAP + 1.0 > room) {
-        ui.end_row();
-    }
-    if ui.cursor().min.x > ui.max_rect().min.x + 1.0 {
+fn group(ui: &mut Ui, t: &Tokens, name: &str, first: bool, add: impl FnOnce(&mut Ui)) {
+    if !first {
         let (r, _) = ui.allocate_exact_size(vec2(2.0 * GROUP_GAP + 1.0, BIG_H + 18.0), Sense::hover());
         ui.painter().vline(r.center().x, (r.min.y + 4.0)..=(r.max.y - 4.0), egui::Stroke::new(1.0, t.edge.gamma_multiply(0.55)));
     }
-    let resp = ui.vertical(|ui| {
+    ui.vertical(|ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 4.0);
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
@@ -798,11 +944,6 @@ fn group(ui: &mut Ui, t: &Tokens, name: &str, add: impl FnOnce(&mut Ui)) {
         let (r, _) = ui.allocate_exact_size(vec2(w, 14.0), Sense::hover());
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, name, regular(11.0), t.text_dim);
     });
-    let r = resp.response.rect;
-    if last.is_none_or(|w| (w - r.width()).abs() > 0.5) {
-        ui.data_mut(|d| d.insert_temp(wid, r.width()));
-        ui.ctx().request_repaint();
-    }
 }
 
 /// Lay out small buttons in columns of three; `f(ui, i)` adds button `i` and returns `None` past
@@ -915,12 +1056,7 @@ fn themes_menu(app: &mut WordApp, ui: &mut Ui, t: &Tokens) {
 
 /// View › Writing: the Glass features.
 fn glass_button(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, local: Local, label: &str, icon: &str) {
-    let on = match local {
-        Local::Typewriter => g.glass.prefs.typewriter,
-        Local::Snapshots => g.glass.panel == Some(crate::Panel::Snapshots),
-        Local::History => g.glass.panel == Some(crate::Panel::History),
-        Local::Goals => g.glass.goal_open,
-    };
+    let on = g.is_on(local);
     let lines: Vec<&str> = label.split('\n').collect();
     let font = regular(11.0);
     let text_w = lines.iter().map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap((*l).to_string(), font.clone(), t.text).size().x)).fold(0.0, f32::max);
@@ -932,6 +1068,26 @@ fn glass_button(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, local: Local, label: 
     for l in lines {
         ui.painter().text(pos2(r.center().x, y), egui::Align2::CENTER_TOP, l, font.clone(), c);
         y += 12.5;
+    }
+    if local == Local::Sprint {
+        // A sprint length to pick, or Stop.
+        egui::Popup::menu(&resp).show(|ui| {
+            ui.set_min_width(170.0);
+            if g.glass.sprint.is_some() {
+                if ui.button("Stop Sprint").clicked() {
+                    g.sprint(None);
+                    ui.close();
+                }
+                ui.separator();
+            }
+            for m in [10, 15, 25, 45, 60] {
+                if ui.button(format!("{m} minutes")).clicked() {
+                    g.sprint(Some(m));
+                    ui.close();
+                }
+            }
+        });
+        return;
     }
     if resp.on_hover_text(label.replace('\n', " ")).clicked() {
         g.toggle(local);
@@ -1157,7 +1313,7 @@ mod tests {
 
     #[test]
     fn every_curated_params_literal_parses() {
-        for tab in ["Home", "Insert", "Draw", "Design", "Layout", "References", "Mailings", "Review", "View", "Help"] {
+        for tab in ["Home", "Insert", "Draw", "Design", "Layout", "References", "Mailings", "Review", "View", "Help", "Writer"] {
             for g in curated(tab).unwrap_or(&[]) {
                 for item in g.items {
                     let mut lits: Vec<&str> = Vec::new();

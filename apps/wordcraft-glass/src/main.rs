@@ -61,7 +61,7 @@ impl eframe::App for App {
         }
         // The window's close button: with unsaved changes, ask first.
         let closing = ctx.input(|i| i.viewport().close_requested());
-        if closing && !self.0.app.close_requested() {
+        if closing && !self.0.close_requested() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         } else if closing || self.0.app.quit_requested {
             #[cfg(target_os = "macos")]
@@ -141,6 +141,11 @@ fn load_prefs(g: &mut GlassApp) {
     {
         g.load_prefs(&bytes);
     }
+    if let Some(p) = settings_file("glass-projects.json")
+        && let Ok(bytes) = std::fs::read(&p)
+    {
+        g.load_projects(&bytes);
+    }
 }
 
 fn load_user_fonts() {
@@ -174,6 +179,9 @@ fn save_prefs(g: &GlassApp) {
         let _ = std::fs::write(&ui_path, bytes);
     }
     let _ = std::fs::write(&glass_path, g.prefs_json());
+    if let Some(p) = settings_file("glass-projects.json") {
+        let _ = std::fs::write(&p, g.projects_json());
+    }
 }
 
 fn services(file_dialog: file_dialogs::Hook, ctx: &egui::Context) -> Services {
@@ -285,10 +293,9 @@ fn main() -> eframe::Result {
             let mut glass = GlassApp::new(app);
             load_prefs(&mut glass);
             glass.app.ui.window = restored;
+            // Each file opens in its own tab.
             for f in files {
-                if let Err(e) = glass.app.run("file.open", serde_json::json!({"path": f})) {
-                    log::warn!("{f}: {e}");
-                }
+                glass.open_path(&f);
             }
             Ok(Box::new(App(
                 glass,

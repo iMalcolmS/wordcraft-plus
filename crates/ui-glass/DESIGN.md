@@ -58,14 +58,21 @@ stronger outline.
 
 ## Layout
 
-- **Title band** (macOS) — beside the traffic lights, only the document's name and its state
-  (Edited / Saved / Not saved), centred, like any Mac window. Elsewhere the system title bar shows it.
+- **Document tabs** — the top line (beside the traffic lights on macOS), as in Notion or Safari:
+  a Home tab, one tab per open document (title, unsaved dot, close button), and +. Each tab keeps
+  its own document, undo, selection, scroll and versions; closing an edited tab asks first, and
+  quitting asks about every edited tab. ⌘T new tab, ⌃Tab / ⌃⇧Tab move between tabs.
+- **Home** — where the app starts with no document: greeting, today's goal ring, the week's bars,
+  new documents from templates (paper tiles that lift on hover), recent files, the Writer Pro
+  switch and Appearance.
 - **Toolbar** — one line, like a Mac unified toolbar: the Quick Access capsule on the left; the tabs
   as a glass segmented control in the middle (the selected tab's pill glides to the tab you pick;
   Developer and Zotero sit behind "More"); the writing tools capsule, search and Share on the right.
-- **Ribbon** — one glass card. Groups sit directly on it, separated by hairlines, never boxed
-  inside it; each group's name sits under its controls. A group that doesn't fit wraps whole to
-  the next row. Large buttons (26 pt icon over label) for main actions, small ones (16 pt icon +
+- **Ribbon** — one glass card, one row. Groups sit directly on it, separated by hairlines, never
+  boxed inside it; each group's name sits under its controls. When the window is too narrow the
+  row scrolls sideways (trackpad, wheel or drag), with soft fades and glass chevrons at the edges
+  that glide it by three quarters of its width, and a thin position bar on hover. Groups never
+  wrap to a second row. Large buttons (26 pt icon over label) for main actions, small ones (16 pt icon +
   label) stacked three to a column, icon toggles 28 × 28.
 - **File** — a glass menu under the File tab (New, Open, Open Recent, Save, Export, Print, Info,
   Settings), not a full-window takeover. Templates, Print, Info and Settings open the full File view.
@@ -83,7 +90,12 @@ Everything moves, briefly and quietly; nothing snaps.
 |---|---|
 | Hover on any control | fill fades in/out, 120 ms |
 | Toggled state | accent tint eases in, 180 ms |
-| Tab change | selected pill glides, 240 ms; the new tab's controls fade in, 200 ms ease-out |
+| Tab change | selected pill glides, 240 ms; the new tab's controls fade in and settle 6 pt, 220 ms ease-out |
+| Ribbon overflow | chevron glides the row, 280 ms; edge fades ease in/out, 150 ms |
+| Document or view switch | the new content fades in, 220 ms ease-out |
+| Switches | the knob slides and the track tints, 180 ms |
+| `[[` and `/` menus | fade in at the caret, 120 ms; the highlight follows ↑ ↓ at 80 ms |
+| Sprint | the ring drains as the time runs |
 | Focus mode | ribbon and panels slide away and back |
 | Navigation and Versions panels | slide in from and out to their edge |
 | File menu, goal popover | fade and rise into place, 140–160 ms |
@@ -113,6 +125,32 @@ is missing. File opens the classic Backstage.
 | Focus | Status capsule, View › Immersive | `view.focus`: hides the ribbon and panes. |
 | Split View | Title bar (disabled) | Planned; needs two canvases on one document. |
 
+## Appearance
+
+View › More Appearance, File › Appearance… or Home: Light / Dark / Automatic, seven accent colours,
+four window tones (Neutral, Warm, Cool, Paper), the glass tint and Reduce Transparency, interface
+size (S/M/L), animations (System/On/Off), dark page, Typewriter mode and Writer Pro. Everything
+applies live and is saved.
+
+## Writer Pro
+
+A switch (toolbar, Home, Appearance) that adds the **Writer** tab and these tools — a mix of
+Scrivener, Notion and Obsidian on a Word document. Everything stays a normal .docx.
+
+| Tool | How it works |
+|---|---|
+| Binder | Left panel: the manuscript's headings (status dot, click to go), open documents, Characters / Places / Research notes (+ to add, click to edit on the right), Scratchpad. |
+| Corkboard | Sections as index cards (status chip, title, synopsis or first sentence, words). Drag a card to move its whole section in the document (`outline.moveUp/Down`); click the chip to cycle To Do → Draft → Revised → Done; double-click to open. Chapters or All Sections. |
+| Outliner | Sections as rows: title (indented by level), status, words, editable synopsis. |
+| `[[` links | Type `[[` and a menu of headings filters as you type; picking one replaces the text with an ordinary hyperlink to a hidden bookmark on that heading (`_wl_…`), so ⌘-click follows it and Word reads it. |
+| `/` commands | `/` at the start of a paragraph: Text, Heading 1–3, lists, To-do, Quote, Divider, Table, Image, Equation, Page break, Footnote, Comment. Initials work (`/h2`, `/pb`). |
+| Scratchpad | Cut to Scratchpad removes the selection but keeps it, dated, with where it came from; insert it back, copy or delete. |
+| Pacing | Per section: sentence length and variety, filter words and passive voice per 1,000 words, dialogue share (English and Portuguese), as a heatmap, plus the document's most used filter words. |
+| Sprint | 10–60 minute writing sprint; the status capsule shows time left on a draining ring and words written; a status message sums it up at the end. |
+
+Card statuses, synopses, notes and scraps are kept per document in `glass-projects.json` next to
+the preferences (they are not written into the .docx).
+
 ## Known limits
 
 - Versions live in memory with the document and are lost when it closes.
@@ -120,5 +158,8 @@ is missing. File opens the classic Backstage.
 - Typewriter mode fades but doesn't yet keep the caret line centred (needs a scroll hook in the
   canvas).
 - Alt key tips don't draw badges on the Glass ribbon.
+- Not yet in Writer Pro: an AI continuity checker, drag handles on every block, compiling several
+  documents into one PDF, citation import (BibTeX/RIS, EndNote) beyond the classic Zotero tab,
+  hover previews of cross-references, institutional template checks, and a reviewer response log.
 - On Linux desktops without a file-chooser portal or zenity, the classic app falls back to its own
   file browser; Glass can't show it yet (`file_browser::show` is crate-private in `ui-egui`).

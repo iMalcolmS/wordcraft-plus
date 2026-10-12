@@ -121,6 +121,12 @@ impl Goals {
 }
 
 impl Tracker {
+    /// Another document is now open: its words are not new writing, so the next tick starts
+    /// counting afresh.
+    pub fn forget_document(&mut self) {
+        self.last = None;
+    }
+
     /// Update from the open document. `doc` identifies the document, `words` is its word count,
     /// `rev` its revision and `now` the time in seconds.
     pub fn tick(&mut self, goals: &mut Goals, today: &str, doc: u64, words: usize, rev: u64, now: f64) {

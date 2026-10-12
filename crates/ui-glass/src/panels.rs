@@ -226,7 +226,7 @@ pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
         .show_collapsible(ui, &mut open, |ui| {
             card(ui, t, |ui| {
                 ui.horizontal(|ui| {
-                    let sel = usize::from(g.glass.panel.or(g.glass.last_panel) == Some(Panel::History));
+                    let sel = usize::from(g.glass.panel.filter(|p| p.is_versions()).or(g.glass.last_panel) == Some(Panel::History));
                     if let Some(i) = w::segmented(ui, t, &["Snapshots", "History"], sel, 30.0) {
                         g.glass.panel = Some(if i == 1 { Panel::History } else { Panel::Snapshots });
                         g.glass.selected_version = None;
@@ -238,7 +238,7 @@ pub fn versions(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
                     });
                 });
                 ui.add_space(10.0);
-                match g.glass.panel {
+                match g.glass.panel.filter(|p| p.is_versions()) {
                     Some(Panel::History) => history(g, ui, t),
                     None if g.glass.last_panel == Some(Panel::History) => history(g, ui, t),
                     _ => snapshots(g, ui, t),

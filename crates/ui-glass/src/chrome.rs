@@ -36,32 +36,6 @@ fn window_drag(ui: &mut Ui, rect: Rect, salt: &str) {
     }
 }
 
-/// macOS: the title band beside the traffic lights, holding only the document's name and state,
-/// like any Mac window. (Elsewhere the system title bar shows the name.)
-pub fn title_band(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
-    if !g.app.integrated_titlebar {
-        return;
-    }
-    egui::Panel::top("glass_title").show_separator_line(false).exact_size(28.0).frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
-        let full = ui.max_rect();
-        window_drag(ui, full, "glass_title_drag");
-        let state = if g.app.session.dirty {
-            "Edited"
-        } else if g.app.session.path.is_some() {
-            "Saved"
-        } else {
-            "Not saved"
-        };
-        let name = g.app.title_stem();
-        let mut job = egui::text::LayoutJob::default();
-        job.append(&name, 0.0, egui::TextFormat { font_id: semibold(13.0), color: t.text, ..Default::default() });
-        job.append(&format!("  —  {state}"), 0.0, egui::TextFormat { font_id: regular(13.0), color: t.text_dim, ..Default::default() });
-        let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
-        let pos = pos2(full.center().x - galley.size().x / 2.0, full.center().y - galley.size().y / 2.0);
-        ui.painter().galley(pos, galley, t.text);
-    });
-}
-
 /// The toolbar: Quick Access on the left, the tabs in the middle, writing tools, search and Share
 /// on the right, all on one line, the way a Mac app's unified toolbar reads.
 pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
@@ -114,12 +88,39 @@ pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                             g.toggle(Local::History);
                         }
                     });
-                    right_start = r.min.x;
+                    let r2 = pro_pill(g, ui, t, h);
+                    right_start = r.min.x.min(r2.min.x);
                 });
             });
             let space = Rect::from_min_max(pos2(left_end + 16.0, row.min.y), pos2(right_start - 16.0, row.max.y));
             tab_strip(g, ui, t, space);
         });
+}
+
+/// The Writer Pro switch in the toolbar: a glass capsule that lights up with the accent when on.
+fn pro_pill(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, h: f32) -> Rect {
+    let on = g.glass.prefs.pro;
+    let font = semibold(12.0);
+    let label = "Writer Pro";
+    let tw = ui.ctx().fonts_mut(|f| f.layout_no_wrap(label.to_string(), font.clone(), t.text).size().x);
+    let (r, resp) = ui.allocate_exact_size(vec2(tw + 38.0, h), Sense::click());
+    let a = ui.ctx().animate_bool_with_time(resp.id.with("on"), on, 0.2);
+    ui.painter().add(glass_shape(r, radius::CAPSULE, t));
+    if a > 0.0 {
+        crate::tokens::paint_fill(ui.painter(), r.shrink(3.0), radius::CAPSULE, t.accent.gamma_multiply(0.16 * a));
+    }
+    crate::tokens::paint_state(ui, r.shrink(3.0), radius::CAPSULE, &resp, false, t);
+    let dot = pos2(r.min.x + 16.0, r.center().y);
+    ui.painter().circle_filled(dot, 4.0, lerp_color(t.text_disabled, t.accent, a));
+    if a > 0.0 {
+        ui.painter().circle_stroke(dot, 4.0 + 3.0 * a, Stroke::new(1.0, t.accent.gamma_multiply(0.35 * a)));
+    }
+    ui.painter().text(pos2(r.min.x + 27.0, r.center().y), Align2::LEFT_CENTER, label, font, lerp_color(t.text, t.accent, a));
+    let tip = if on { "Writer Pro is on: Binder, Corkboard, Outliner, [[links]], / commands" } else { "Turn on Writer Pro" };
+    if resp.on_hover_text(tip).clicked() {
+        g.set_pro(!on);
+    }
+    r
 }
 
 /// Tabs that live behind "More" unless one of them is open.
@@ -128,7 +129,7 @@ const EXTRA_TABS: [&str; 2] = ["Developer", "Zotero"];
 /// The tabs as a glass segmented control. The selected tab's pill glides to the tab you pick.
 fn tab_strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, space: Rect) {
     let current = g.app.ui.tab.clone();
-    let all = crate::ribbon::tabs(&g.app);
+    let all = crate::ribbon::tabs(&g.app, g.glass.prefs.pro);
     let mut names: Vec<String> = all.iter().filter(|n| !EXTRA_TABS.contains(&n.as_str()) || **n == current).cloned().collect();
     let extras: Vec<String> = all.iter().filter(|n| EXTRA_TABS.contains(&n.as_str()) && **n != current).cloned().collect();
     if !extras.is_empty() {
@@ -250,14 +251,15 @@ pub fn file_menu(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
             let mut action: Option<(&str, serde_json::Value)> = None;
             let mut page: Option<&str> = None;
             let sc = |app: &WordApp, id: &str| wc::shortcut_text(app, id);
-            if menu_row(ui, t, "New", &sc(&g.app, "file.new"), true).clicked() {
-                action = Some(("file.new", json!({})));
+            let mut tab_action: Option<u8> = None;
+            if menu_row(ui, t, "New Tab", "⌘T", true).clicked() {
+                tab_action = Some(0);
             }
             if menu_row(ui, t, "New from Template…", "", true).clicked() {
                 page = Some("new");
             }
             if menu_row(ui, t, "Open…", &sc(&g.app, "file.open"), true).clicked() {
-                action = Some(("file.open", json!({})));
+                tab_action = Some(1);
             }
             let recent: Vec<String> = g.app.ui.recent.iter().take(5).cloned().collect();
             if !recent.is_empty() {
@@ -286,8 +288,26 @@ pub fn file_menu(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
             if menu_row(ui, t, "Document Info", "", true).clicked() {
                 page = Some("info");
             }
+            if menu_row(ui, t, "Appearance…", "", true).clicked() {
+                tab_action = Some(2);
+            }
             if menu_row(ui, t, "Settings…", "", true).clicked() {
                 page = Some("options");
+            }
+            match tab_action {
+                Some(0) => {
+                    g.glass.file_menu = false;
+                    g.new_tab(wordcraft_engine::Session::new(wordcraft_engine::doc::Document::new()));
+                }
+                Some(1) => {
+                    g.glass.file_menu = false;
+                    g.open_dialog();
+                }
+                Some(_) => {
+                    g.glass.file_menu = false;
+                    g.glass.appearance_open = true;
+                }
+                None => {}
             }
             if let Some((id, p)) = action {
                 g.glass.file_menu = false;
@@ -303,9 +323,7 @@ pub fn file_menu(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
     });
     if let Some(path) = g.glass.recent_pick.take() {
         g.glass.file_menu = false;
-        if let Err(e) = g.app.run("file.open", json!({"path": path})) {
-            g.app.status(e);
-        }
+        g.open_path(&path);
     }
     let close = ctx.input(|i| {
         i.key_pressed(egui::Key::Escape)
@@ -388,6 +406,22 @@ pub fn status_bar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                     g.glass.goal_open = !g.glass.goal_open;
                 }
                 status_text(ui, t, &format!("{} today", minutes_text(done.secs)));
+                if let Some(sp) = g.glass.sprint {
+                    // The running sprint: time left on a draining arc, and words so far.
+                    let now = wordcraft_ui_egui::now_ms() / 1000.0;
+                    let left = (sp.secs - (now - sp.started)).max(0.0);
+                    let label = format!("{}:{:02} · +{}", (left / 60.0).floor(), (left % 60.0).floor(), g.sprint_words().max(0));
+                    let lw = ui.ctx().fonts_mut(|f| f.layout_no_wrap(label.clone(), medium(12.0), t.text).size().x);
+                    let (sr, sresp) = ui.allocate_exact_size(vec2(lw + 40.0, 28.0), Sense::click());
+                    crate::tokens::paint_fill(ui.painter(), sr, radius::CAPSULE, t.accent_soft);
+                    crate::tokens::paint_state(ui, sr, radius::CAPSULE, &sresp, false, t);
+                    ring(ui.painter(), pos2(sr.min.x + 16.0, sr.center().y), 8.0, 2.6, (left / sp.secs.max(1.0)) as f32, t.fill, t.accent);
+                    ui.painter().text(pos2(sr.min.x + 30.0, sr.center().y), Align2::LEFT_CENTER, label, medium(12.0), t.accent);
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+                    if sresp.on_hover_text("Writing sprint: click to stop").clicked() {
+                        g.sprint(None);
+                    }
+                }
                 divider(ui, t);
                 let l = g.app.session.layout();
                 let page = l.caret_on(&g.app.session.sel.focus, g.app.session.page_hint).map(|c| c.page + 1).unwrap_or(1);

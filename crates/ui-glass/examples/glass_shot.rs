@@ -6,7 +6,9 @@
 //! (`{"method": …, "params": …}`), `{"shot": "/abs/out.png"}`, `{"steps": n}`, plus Glass's own:
 //! `{"glass": "snapshots" | "history" | "goals" | "typewriter"}` toggles a feature,
 //! `{"tab": "Insert"}` picks a ribbon tab, `{"words": n}` sets today's words written and
-//! `{"snapshot": "name"}` takes a snapshot and `{"select": i}` selects version `i`. The window is 1440×900 pt at 2× and opens the sample
+//! `{"snapshot": "name"}` takes a snapshot and `{"select": i}` selects version `i`;
+//! `{"pro": true}` turns Writer Pro on, `{"home": true}` shows Home, `{"template": "letter"}`
+//! opens a template in a tab and `{"run": "text.insert", "params": {…}}` runs a command. The window is 1440×900 pt at 2× and opens the sample
 //! document unless the first line is `{"empty": true}`.
 
 use wordcraft_engine::Session;
@@ -49,6 +51,8 @@ fn main() {
     step_n(&mut harness, 6);
     for l in lines {
         if let Some(p) = l.get("shot").and_then(|v| v.as_str()) {
+            // Let time-based fades (tab and view switches) finish.
+            std::thread::sleep(std::time::Duration::from_millis(300));
             step_n(&mut harness, 4);
             match harness.render() {
                 Ok(img) => {
@@ -64,9 +68,33 @@ fn main() {
                 "snapshots" => Local::Snapshots,
                 "history" => Local::History,
                 "goals" => Local::Goals,
+                "corkboard" => Local::Corkboard,
+                "outliner" => Local::Outliner,
+                "page" => Local::Page,
+                "binder" => Local::Binder,
+                "scratchpad" => Local::Scratchpad,
+                "cut" => Local::CutToScratchpad,
+                "pacing" => Local::Pacing,
+                "sprint" => Local::Sprint,
+                "appearance" => Local::Appearance,
                 _ => Local::Typewriter,
             };
             harness.state_mut().toggle(local);
+            step_n(&mut harness, 2);
+        } else if let Some(on) = l.get("pro").and_then(|v| v.as_bool()) {
+            harness.state_mut().set_pro(on);
+            step_n(&mut harness, 2);
+        } else if l.get("home").is_some() {
+            harness.state_mut().set_view(wordcraft_ui_glass::View::Home);
+            step_n(&mut harness, 30);
+        } else if let Some(kind) = l.get("template").and_then(|v| v.as_str()) {
+            harness.state_mut().new_from_template(kind);
+            step_n(&mut harness, 4);
+        } else if let Some(id) = l.get("run").and_then(|v| v.as_str()) {
+            let p = l.get("params").cloned().unwrap_or_else(|| serde_json::json!({}));
+            if let Err(e) = harness.state_mut().app.run(id, p) {
+                eprintln!("{id}: {e}");
+            }
             step_n(&mut harness, 2);
         } else if let Some(tab) = l.get("tab").and_then(|v| v.as_str()) {
             harness.state_mut().app.ui.tab = tab.to_string();
