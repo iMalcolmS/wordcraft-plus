@@ -68,7 +68,14 @@ stronger outline.
 - **Toolbar** — one line, like a Mac unified toolbar: the Quick Access capsule on the left; the tabs
   as a glass segmented control in the middle (the selected tab's pill glides to the tab you pick;
   Developer and Zotero sit behind "More"); the writing tools capsule, search and Share on the right.
-- **Ribbon** — one glass card, one row. Groups sit directly on it, separated by hairlines, never
+- **Tabs** — File, Home, Insert, Layout, References, Review, View (and Writer with Writer Pro);
+  Draw, Design, Mailings, Developer, Zotero and Help under **More**, which shows the open one's
+  name. Contextual tabs (Table, Picture, Equation…) appear as needed.
+- **Ribbon (Word tabs)** — WordCraft's own ribbon, complete (every group, gallery, split button
+  and dialog launcher, the full Styles gallery with Clear Formatting, Alt key tips), set on the
+  glass card: its tab strip is left out and its opaque backgrounds cleared. The toolbar's
+  controls live on their own layer, so nothing beneath can take their clicks.
+- **Ribbon (Writer tab)** — one glass card, one row. Groups sit directly on it, separated by hairlines, never
   boxed inside it; each group's name sits under its controls. When the window is too narrow the
   row scrolls sideways (trackpad, wheel or drag), with soft fades and glass chevrons at the edges
   that glide it by three quarters of its width, and a thin position bar on hover. Groups never
@@ -99,7 +106,7 @@ Everything moves, briefly and quietly; nothing snaps.
 | Focus mode | ribbon and panels slide away and back |
 | Navigation and Versions panels | slide in from and out to their edge |
 | File menu, goal popover | fade and rise into place, 140–160 ms |
-| Typewriter mode | the veil fades in and out, 250 ms |
+| Typewriter mode | the page glides the caret's line towards the middle; the fade follows the caret, 140 ms, with soft edges in the paper's own colour |
 | Status messages | fade in, stay, fade out over their last second |
 
 Fonts: the UI font (Inter) at 13 pt for controls and menus, 11 pt for group names and secondary
@@ -148,6 +155,26 @@ count, words and state.
 | Rhythm marks | A thin bar in the left margin per paragraph: green, amber when sentences average over 22 words (or 150+ words), red over 30 (or 220+). Hover for the figures. Words of four letters or more repeated within ten words, or three times in a paragraph, get a gradient underline (English and Portuguese stop words ignored). |
 | Layout guides | The text area's margins, a centre line and a 12 pt baseline grid. |
 
+## Writer Pro, the Scrivener way (`src/scriv.rs`)
+
+- **Binder** — Manuscript as a tree: sections with children are folders, the rest documents,
+  with disclosure triangles; open documents; Characters, Places and Research folders (+ on the
+  row, click to open in the split); Scratchpad. ⌥-click or right-click a section for Quick
+  Reference.
+- **Editor header** — over the page: ‹ › through the sections visited, the section's name and
+  status, ⌃ ⌄ previous/next section, the split and the Inspector.
+- **Inspector** — the section's synopsis (white card), notes (cream card), label and status.
+- **Split** — a reference pane: Manuscript (sections with synopses), Characters, Places or
+  Research (items with two lines of synopsis, the selected one open beneath to edit).
+- **Quick Reference** — a section in a small floating window to read while writing; ‹ › walk the
+  sections; drag it by its title.
+- **Section boxes** — on the page, each heading in a soft box tinted with its label, a dashed rule
+  between sections (Writer › Section Boxes).
+- **Block menu** — click a block's ⠿ handle: Turn into (Text, Heading 1–3, Quote, lists, To-do),
+  **Turn into page** (a heading takes its section: it moves to a new document in its own tab and a
+  page link takes its place; click the link to open the page; Undo brings it back), Quick
+  Reference, Duplicate, Move up/down, Select, Delete.
+
 ## Appearance
 
 View › More Appearance, File › Appearance… or Home: Light / Dark / Automatic, seven accent colours,
@@ -179,9 +206,8 @@ the preferences (they are not written into the .docx).
 
 - Versions live in memory with the document and are lost when it closes.
 - Version times are shown in UTC (the engine records UTC).
-- Typewriter mode fades but doesn't yet keep the caret line centred (needs a scroll hook in the
-  canvas).
-- Alt key tips don't draw badges on the Glass ribbon.
+- Typewriter centring scrolls through the canvas's wheel input, so it works while the pointer
+  rests over the page.
 - Magnetic guides while dragging pictures and text boxes need a hook in the canvas (object drags
   are private to `ui-egui`); the layout guides are shown, but objects don't snap to them yet.
 - Collapsing headings happens inside the canvas, so it isn't animated yet.

@@ -23,19 +23,6 @@ fn button_capsule(ui: &mut Ui, t: &Tokens, n: usize, size: f32, add: impl FnOnce
     r
 }
 
-/// Let the window be moved by dragging empty chrome, and zoomed by double-clicking it, as macOS
-/// title bars and toolbars do.
-fn window_drag(ui: &mut Ui, rect: Rect, salt: &str) {
-    let drag = ui.interact(rect, ui.id().with(salt), Sense::click_and_drag());
-    if drag.drag_started() {
-        ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
-    }
-    if drag.double_clicked() {
-        let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
-        ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
-    }
-}
-
 /// The toolbar: Quick Access on the left, the tabs in the middle, writing tools, search and Share
 /// on the right, all on one line, the way a Mac app's unified toolbar reads.
 pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
@@ -46,54 +33,76 @@ pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
         .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 14, right: 14, top: if mac { 2 } else { 10 }, bottom: 8 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
-            window_drag(ui, full, "glass_toolbar_drag");
-            let h = 34.0;
-            let row = Rect::from_min_size(pos2(full.min.x, full.center().y - h / 2.0), vec2(full.width(), h));
-            let mut left_end = row.min.x;
-            let mut right_start = row.max.x;
-            ui.scope_builder(egui::UiBuilder::new().max_rect(row).layout(Layout::left_to_right(Align::Center)), |ui| {
-                ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
-                let ids: Vec<String> = g.app.session.ribbon.qat().into_iter().map(str::to_string).collect();
-                let r = button_capsule(ui, t, ids.len(), h - 6.0, |ui| {
-                    for id in &ids {
-                        let label = g.app.session.registry.get(id).map(|s| s.label).unwrap_or(id.as_str()).to_string();
-                        w::command_capsule(ui, &mut g.app, t, wc::command_icon(id), &label, id, h - 6.0);
-                    }
-                });
-                left_end = r.max.x;
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let panel = full.expand2(vec2(14.0, 10.0));
+            // The toolbar's controls live on their own layer above the window, so nothing laid
+            // out beneath them (the classic ribbon's own tab strip, which Glass hides) can take
+            // their clicks.
+            egui::Area::new(egui::Id::new("glass_toolbar_layer")).order(egui::Order::Middle).fixed_pos(panel.min).show(ui.ctx(), |ui| {
+                ui.set_clip_rect(panel);
+                let drag = ui.allocate_rect(panel, Sense::click_and_drag());
+                if drag.drag_started() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                }
+                if drag.double_clicked() {
+                    let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
+                }
+                let h = 34.0;
+                let row = Rect::from_min_size(pos2(full.min.x, full.center().y - h / 2.0), vec2(full.width(), h));
+                let mut left_end = row.min.x;
+                let mut right_start = row.max.x;
+                ui.scope_builder(egui::UiBuilder::new().max_rect(row).layout(Layout::left_to_right(Align::Center)), |ui| {
                     ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
-                    if w::accent_button(ui, t, Some("share"), "Share", None, h).on_hover_text("Save or export a copy to share").clicked() {
-                        w::run(ui, &mut g.app, "file.share", json!({}));
-                    }
-                    let r = button_capsule(ui, t, 1, h - 6.0, |ui| {
-                        if w::icon_capsule(ui, t, "search", "Search commands", h - 6.0, false, true).clicked() {
-                            w::run(ui, &mut g.app, "ui.dialog", json!({"name": "commands"}));
+                    let ids: Vec<String> = g.app.session.ribbon.qat().into_iter().map(str::to_string).collect();
+                    let r = button_capsule(ui, t, ids.len(), h - 6.0, |ui| {
+                        for id in &ids {
+                            let label = g.app.session.registry.get(id).map(|s| s.label).unwrap_or(id.as_str()).to_string();
+                            w::command_capsule(ui, &mut g.app, t, wc::command_icon(id), &label, id, h - 6.0);
                         }
                     });
-                    let _ = r;
-                    let r = button_capsule(ui, t, 4, h - 6.0, |ui| {
-                        let s = h - 6.0;
-                        let tw = g.glass.prefs.typewriter;
-                        if w::icon_capsule(ui, t, "focus", "Typewriter mode: fades everything but the lines you're writing", s, tw, true).clicked() {
-                            g.toggle(Local::Typewriter);
+                    left_end = r.max.x;
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing = vec2(10.0, 0.0);
+                        if w::accent_button(ui, t, Some("share"), "Share", None, h).on_hover_text("Save or export a copy to share").clicked() {
+                            w::run(ui, &mut g.app, "file.share", json!({}));
                         }
-                        w::icon_capsule(ui, t, "split", "Split View is coming in a later version", s, false, false);
-                        let snaps = g.glass.panel == Some(Panel::Snapshots);
-                        if w::icon_capsule(ui, t, "screenshot", "Snapshots", s, snaps, true).clicked() {
-                            g.toggle(Local::Snapshots);
-                        }
-                        let hist = g.glass.panel == Some(Panel::History);
-                        if w::icon_capsule(ui, t, "replay", "Version History", s, hist, true).clicked() {
-                            g.toggle(Local::History);
-                        }
+                        let r = button_capsule(ui, t, 1, h - 6.0, |ui| {
+                            if w::icon_capsule(ui, t, "search", "Search commands", h - 6.0, false, true).clicked() {
+                                w::run(ui, &mut g.app, "ui.dialog", json!({"name": "commands"}));
+                            }
+                        });
+                        let _ = r;
+                        let r = button_capsule(ui, t, 4, h - 6.0, |ui| {
+                            let s = h - 6.0;
+                            let tw = g.glass.prefs.typewriter;
+                            if w::icon_capsule(ui, t, "focus", "Typewriter mode: fades everything but the lines you're writing", s, tw, true)
+                                .clicked()
+                            {
+                                g.toggle(Local::Typewriter);
+                            }
+                            let split = matches!(g.glass.panel, Some(Panel::Reference(_)));
+                            let pro = g.glass.prefs.pro;
+                            let tip =
+                                if pro { "Split: Characters, Places, Research or the manuscript beside the page" } else { "Split (Writer Pro)" };
+                            if w::icon_capsule(ui, t, "split", tip, s, split, pro).clicked() && pro {
+                                g.toggle(Local::Split);
+                            }
+                            let snaps = g.glass.panel == Some(Panel::Snapshots);
+                            if w::icon_capsule(ui, t, "screenshot", "Snapshots", s, snaps, true).clicked() {
+                                g.toggle(Local::Snapshots);
+                            }
+                            let hist = g.glass.panel == Some(Panel::History);
+                            if w::icon_capsule(ui, t, "replay", "Version History", s, hist, true).clicked() {
+                                g.toggle(Local::History);
+                            }
+                        });
+                        let r2 = pro_pill(g, ui, t, h);
+                        right_start = r.min.x.min(r2.min.x);
                     });
-                    let r2 = pro_pill(g, ui, t, h);
-                    right_start = r.min.x.min(r2.min.x);
                 });
+                let space = Rect::from_min_max(pos2(left_end + 16.0, row.min.y), pos2(right_start - 16.0, row.max.y));
+                tab_strip(g, ui, t, space);
             });
-            let space = Rect::from_min_max(pos2(left_end + 16.0, row.min.y), pos2(right_start - 16.0, row.max.y));
-            tab_strip(g, ui, t, space);
         });
 }
 
@@ -124,20 +133,22 @@ fn pro_pill(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, h: f32) -> Rect {
 }
 
 /// Tabs that live behind "More" unless one of them is open.
-const EXTRA_TABS: [&str; 2] = ["Developer", "Zotero"];
+const EXTRA_TABS: [&str; 6] = ["Draw", "Design", "Mailings", "Developer", "Zotero", "Help"];
 
 /// The tabs as a glass segmented control. The selected tab's pill glides to the tab you pick.
 fn tab_strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, space: Rect) {
     let current = g.app.ui.tab.clone();
     let all = crate::ribbon::tabs(&g.app, g.glass.prefs.pro);
-    let mut names: Vec<String> = all.iter().filter(|n| !EXTRA_TABS.contains(&n.as_str()) || **n == current).cloned().collect();
-    let extras: Vec<String> = all.iter().filter(|n| EXTRA_TABS.contains(&n.as_str()) && **n != current).cloned().collect();
-    if !extras.is_empty() {
-        names.push("More".into());
-    }
+    let mut names: Vec<String> = all.iter().filter(|n| !EXTRA_TABS.contains(&n.as_str())).cloned().collect();
+    let extras: Vec<String> = all.iter().filter(|n| EXTRA_TABS.contains(&n.as_str())).cloned().collect();
+    // A tab from More shows its name on the More button while it is open.
+    let in_more = extras.contains(&current);
+    let more_label = if in_more { format!("{current} ⌄") } else { "More ⌄".to_string() };
+    names.push("More".into());
     let font = medium(13.0);
     let mut pad = 28.0;
-    let text_w: Vec<f32> = names.iter().map(|n| ui.ctx().fonts_mut(|f| f.layout_no_wrap(n.clone(), font.clone(), t.text).size().x)).collect();
+    let label_of = |n: &String| if n == "More" { more_label.clone() } else { n.clone() };
+    let text_w: Vec<f32> = names.iter().map(|n| ui.ctx().fonts_mut(|f| f.layout_no_wrap(label_of(n), font.clone(), t.text).size().x)).collect();
     let mut total: f32 = text_w.iter().sum::<f32>() + pad * names.len() as f32 + 6.0;
     if total > space.width() {
         pad = 16.0;
@@ -152,7 +163,13 @@ fn tab_strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, space: Rect) {
         rects.push(r);
         x += tw + pad;
     }
-    let selected = if g.glass.file_menu { names.iter().position(|n| n == "File") } else { names.iter().position(|n| *n == current) };
+    let selected = if g.glass.file_menu {
+        names.iter().position(|n| n == "File")
+    } else if in_more {
+        names.iter().position(|n| n == "More")
+    } else {
+        names.iter().position(|n| *n == current)
+    };
     if let Some(sel) = selected.and_then(|i| rects.get(i)) {
         let ctx = ui.ctx().clone();
         let px = ctx.animate_value_with_time(egui::Id::new("glass_tab_pill_x"), sel.min.x - track.min.x, 0.24);
@@ -169,16 +186,25 @@ fn tab_strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, space: Rect) {
         let on = selected == Some(i);
         let hover = ui.ctx().animate_bool_with_time(resp.id.with("h"), resp.hovered(), 0.12);
         let c = if on { t.text } else { lerp_color(t.text_dim, t.text, hover) };
-        let label = if name == "More" { "More ⌄".to_string() } else { name.clone() };
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, label, font.clone(), c);
+        ui.painter().text(r.center(), Align2::CENTER_CENTER, label_of(name), font.clone(), c);
         if name == "More" {
             egui::Popup::menu(&resp).show(|ui| {
-                ui.set_min_width(170.0);
+                ui.set_min_width(190.0);
                 for e in &extras {
-                    if ui.button(e.as_str()).clicked() {
+                    if ui.selectable_label(*e == current, e.as_str()).clicked() {
+                        g.glass.file_menu = false;
                         g.app.ui.tab = e.clone();
                         ui.close();
                     }
+                }
+                ui.separator();
+                if ui.button("Appearance…").clicked() {
+                    g.glass.appearance_open = true;
+                    ui.close();
+                }
+                if ui.button("Keyboard Shortcuts…").clicked() {
+                    w::run(ui, &mut g.app, "ui.dialog", json!({"name": "customizeKeyboard"}));
+                    ui.close();
                 }
             });
             continue;

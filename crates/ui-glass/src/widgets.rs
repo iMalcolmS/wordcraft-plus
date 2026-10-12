@@ -11,11 +11,6 @@ use wordcraft_ui_egui::{WordApp, icons, widgets as wc};
 
 use crate::tokens::{Tokens, paint_fill, paint_pill, radius};
 
-/// Parse a JSON params literal from the ribbon tables (an empty or bad literal is `{}`).
-pub fn params(s: &str) -> Value {
-    if s.is_empty() { json!({}) } else { serde_json::from_str(s).unwrap_or_else(|_| json!({})) }
-}
-
 /// Run a command the user clicked, reporting a failure in the status bar instead of failing
 /// silently. Copy and Cut also put the text on the system clipboard, as the original ribbon does.
 pub fn run(ui: &Ui, app: &mut WordApp, id: &str, p: Value) {
@@ -67,9 +62,6 @@ pub fn command_capsule(ui: &mut Ui, app: &mut WordApp, t: &Tokens, icon: &str, t
 
 /// Height of a large ribbon button.
 pub const BIG_H: f32 = 70.0;
-/// Height of one small ribbon button (three stack in a column).
-pub const SMALL_H: f32 = 22.0;
-
 /// A large ribbon button: 24 pt icon over its label. `menu` adds a chevron and leaves the click to
 /// the caller (which opens the menu).
 #[allow(clippy::too_many_arguments)]
@@ -93,28 +85,6 @@ pub fn big(ui: &mut Ui, app: &mut WordApp, t: &Tokens, icon: &str, label: &str, 
     }
     let tip = label.replace('\n', " ");
     let resp = tooltip(app, resp, &tip, id);
-    wc::command_menu(&resp, app, id);
-    if resp.clicked() && enabled && !menu {
-        run(ui, app, id, p);
-    }
-    resp
-}
-
-/// A small ribbon button: 16 pt icon and its label, in a column of three.
-#[allow(clippy::too_many_arguments)]
-pub fn small(ui: &mut Ui, app: &mut WordApp, t: &Tokens, icon: &str, label: &str, id: &str, p: Value, menu: bool, on: bool) -> Response {
-    let enabled = wc::enabled(app, id) || id == "ui.dialog";
-    let font = regular(11.5);
-    let text = if menu { format!("{label} ⌄") } else { label.to_string() };
-    let text_w = ui.ctx().fonts_mut(|f| f.layout_no_wrap(text.clone(), font.clone(), t.text).size().x);
-    let (r, resp) = ui.allocate_exact_size(vec2(text_w + 32.0, SMALL_H), Sense::click());
-    if enabled {
-        crate::tokens::paint_state(ui, r, 8, &resp, on, t);
-    }
-    let (c, a) = if enabled { (t.text, t.accent) } else { (t.text_disabled, t.text_disabled) };
-    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.min.x + 13.0, r.center().y), vec2(16.0, 16.0)), icon, c, a);
-    ui.painter().text(pos2(r.min.x + 26.0, r.center().y), Align2::LEFT_CENTER, text, font, c);
-    let resp = tooltip(app, resp, label, id);
     wc::command_menu(&resp, app, id);
     if resp.clicked() && enabled && !menu {
         run(ui, app, id, p);

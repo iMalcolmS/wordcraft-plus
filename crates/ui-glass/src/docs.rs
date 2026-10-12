@@ -111,6 +111,17 @@ impl GlassApp {
         self.glass.view = self.glass.doc_view;
     }
 
+    /// Open `session` in a new tab behind the open one (for a page made from a block). Returns
+    /// the tab's id.
+    pub fn add_background_tab(&mut self, session: Session) -> u64 {
+        self.ensure_tabs();
+        self.docs.next_uid += 1;
+        let uid = self.docs.next_uid;
+        let at = (self.docs.active + 1).min(self.docs.tabs.len());
+        self.docs.tabs.insert(at, DocTab { uid, stash: Some((session, CanvasState::default())) });
+        uid
+    }
+
     /// Whether the open tab holds an untouched blank document (worth reusing).
     fn active_is_pristine(&self) -> bool {
         self.app.session.path.is_none() && !self.app.session.dirty && self.app.session.word_count() == 0

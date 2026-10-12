@@ -314,6 +314,11 @@ pub fn frost_shape(rect: Rect, r: u8, t: &Tokens) -> egui::Shape {
     ])
 }
 
+/// The font for small-caps section titles in menus.
+pub fn small_caps() -> egui::FontId {
+    wordcraft_ui_egui::theme::semibold(10.5)
+}
+
 /// Paint a piece of glass now.
 pub fn paint_glass(p: &Painter, rect: Rect, r: u8, t: &Tokens) {
     p.add(glass_shape(rect, r, t));

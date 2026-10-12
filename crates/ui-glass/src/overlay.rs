@@ -62,6 +62,8 @@ pub struct Overlay {
     last_style: Option<(u64, Path, Option<String>)>,
     /// Rhythm marks for a (document, revision).
     marks: Option<((u64, u64), Arc<Vec<Mark>>)>,
+    /// The block menu (Turn into…), open for a block, under a point.
+    pub menu: Option<(usize, Pos2)>,
 }
 
 /// How long a pulse lasts (seconds).
@@ -190,7 +192,17 @@ pub fn before_canvas(g: &mut GlassApp, ui: &mut Ui) {
         0.0
     };
     if speed != 0.0 {
-        ui.ctx().input_mut(|i| i.smooth_scroll_delta.y += speed.clamp(-1.0, 1.0) * 14.0);
+        // Fed to the canvas as a fractional wheel step, which it applies at once.
+        let notch = wordcraft_ui_egui::scroll::notch_px(g.app.canvas.scale / wordcraft_ui_egui::canvas::PX_PER_PT).max(1.0);
+        let lines = speed.clamp(-1.0, 1.0) * 14.0 / notch + 0.001;
+        ui.ctx().input_mut(|i| {
+            i.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, lines),
+                phase: egui::TouchPhase::Move,
+                modifiers: egui::Modifiers::NONE,
+            })
+        });
         ui.ctx().request_repaint();
     }
 }
@@ -213,6 +225,11 @@ pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     if g.glass.prefs.rhythm {
         rhythm(g, ui, &painter, &layout, &pages, t);
     }
+    let blocks = visible_blocks(g, &layout, &pages);
+    if g.glass.prefs.pro && g.glass.prefs.scrivenings {
+        crate::scriv::section_boxes(g, &painter, &layout, &blocks, t, &mut |g, b| block_rects(g, &layout, b));
+    }
+    page_links(g, ui, &painter, &layout, &blocks, t);
     pulse(g, ui, &painter, &layout, t);
     if g.glass.prefs.pro && g.glass.prefs.handles {
         handles(g, ui, &painter, &layout, &pages, clip, t);
@@ -684,13 +701,245 @@ fn handles(g: &mut GlassApp, ui: &mut Ui, painter: &egui::Painter, layout: &DocL
             ctx.animate_value_with_time(egui::Id::new("glass_ghost_y"), p.y, 0.0);
         }
         g.glass.overlay.drag = Some(BlockDrag { from: block, text, target: None });
-    } else if resp.clicked()
-        && let Some(len) = para_len(g, &Path::top(block))
-    {
-        g.app.session.sel =
-            Selection { anchor: Pos::new(StoryRef::Body, Path::top(block), 0), focus: Pos::new(StoryRef::Body, Path::top(block), len) };
-        g.app.canvas.want_focus = true;
+    } else if resp.clicked() {
+        // As in Notion: the handle's menu turns the block into something else.
+        g.glass.overlay.menu = Some((block, pos2(r.max.x + 4.0, r.min.y)));
     }
+}
+
+/// Where a heading's section ends: the next heading at its level or above (top-level blocks).
+fn section_end(g: &GlassApp, b: usize) -> usize {
+    let doc = &g.app.session.doc;
+    let n = doc.story(StoryRef::Body).map(|x| x.len()).unwrap_or(0);
+    let level_of = |i: usize| doc.para(StoryRef::Body, &Path::top(i)).and_then(|p| doc.styles.resolve_para(&p.props).outline_level);
+    match level_of(b) {
+        Some(l) => (b + 1..n).find(|i| level_of(*i).is_some_and(|x| x <= l)).unwrap_or(n),
+        None => b + 1,
+    }
+}
+
+/// The URL a page link carries: the page's tab.
+pub const PAGE_SCHEME: &str = "glass-page:";
+
+/// Notion's "Turn into page": the block (a heading takes its whole section with it) moves to a
+/// new document in its own tab, and a link to it takes its place. Undo brings the text back.
+pub fn turn_into_page(g: &mut GlassApp, b: usize) -> Result<(), String> {
+    let end = section_end(g, b);
+    let doc = &g.app.session.doc;
+    let title = doc.para(StoryRef::Body, &Path::top(b)).map(|p| p.plain_text().trim().to_string()).unwrap_or_default();
+    let title = if title.is_empty() { "Untitled page".to_string() } else { title.chars().take(120).collect() };
+    let last = end.checked_sub(1).ok_or("nothing to move")?;
+    let last_len = doc.para(StoryRef::Body, &Path::top(last)).map(|p| p.text.len()).ok_or("a table ends this section: move it out first")?;
+    // The new page: the same document, keeping only these blocks.
+    let mut page = doc.clone();
+    {
+        let body = page.story_mut(StoryRef::Body).map_err(|e| e.to_string())?;
+        let kept: Vec<_> = body.get(b..end).map(|x| x.to_vec()).unwrap_or_default();
+        *body = kept;
+    }
+    page.core.title = title.clone();
+    // Here: the blocks go, an empty paragraph stays for the link.
+    g.app.session.sel = Selection { anchor: Pos::new(StoryRef::Body, Path::top(b), 0), focus: Pos::new(StoryRef::Body, Path::top(last), last_len) };
+    if b != last || last_len > 0 {
+        g.app.run("text.delete", json!({}))?;
+    }
+    g.app.session.sel = Selection::caret(Pos::new(StoryRef::Body, Path::top(b), 0));
+    let _ = g.app.run("para.normal", json!({}));
+    let uid = g.add_background_tab(wordcraft_engine::Session::new(page));
+    g.app.run("insert.link", json!({"url": format!("{PAGE_SCHEME}{uid}"), "text": title}))?;
+    g.glass.overlay.pulse = Some((Path::top(b), now_ms() / 1000.0));
+    g.app.status(format!("“{title}” is now a page of its own — click its link to open it"));
+    Ok(())
+}
+
+/// The page a link at `pos` opens, if it is a page link.
+fn page_link_at(g: &GlassApp, pos: &Pos) -> Option<u64> {
+    let para = g.app.session.doc.para_at(pos)?;
+    for off in [pos.off, para.prev_boundary(pos.off)] {
+        if off < para.text.len()
+            && let Some(url) = para.props_of_char(off).link.as_deref()
+            && let Some(uid) = url.strip_prefix(PAGE_SCHEME)
+        {
+            return uid.parse().ok();
+        }
+    }
+    None
+}
+
+/// Page links: a page icon beside each, and a click opens the page.
+fn page_links(g: &mut GlassApp, ui: &mut Ui, painter: &egui::Painter, layout: &DocLayout, blocks: &[usize], t: &Tokens) {
+    for &b in blocks {
+        let path = Path::top(b);
+        let is_page = g
+            .app
+            .session
+            .doc
+            .para(StoryRef::Body, &path)
+            .is_some_and(|p| (0..p.text.len().min(8)).any(|o| p.props_of_char(o).link.as_deref().is_some_and(|u| u.starts_with(PAGE_SCHEME))));
+        if !is_page {
+            continue;
+        }
+        if let Some((_, first)) = block_rects(g, layout, b).first().copied() {
+            let r = Rect::from_center_size(pos2(first.min.x - 14.0, first.center().y), vec2(16.0, 16.0));
+            crate::scriv::icon(painter, r, crate::scriv::Icon::Doc, t);
+        }
+    }
+    // A plain click (not a drag, not a selection) on a page link opens it.
+    let (released, dragged, p) = ui.input(|i| (i.pointer.primary_released(), i.pointer.is_decidedly_dragging(), i.pointer.interact_pos()));
+    if released
+        && !dragged
+        && let Some(p) = p
+        && g.app.canvas.canvas_rect.is_some_and(|c| c.contains(p))
+        && let Some(pos) = wordcraft_ui_egui::canvas::pos_from_screen(&mut g.app, p)
+        && let Some(uid) = page_link_at(g, &pos)
+    {
+        match g.docs.tabs.iter().position(|x| x.uid == uid) {
+            Some(i) => g.switch_to(i),
+            None => g.app.status("That page was closed. Pages you saved open from File › Open."),
+        }
+    }
+}
+
+/// The block menu: turn the block into another kind, into a page, or move, copy or delete it.
+pub fn block_menu(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
+    let Some((b, at)) = g.glass.overlay.menu else { return };
+    let path = Path::top(b);
+    let Some(len) = para_len(g, &path) else {
+        g.glass.overlay.menu = None;
+        return;
+    };
+    let heading =
+        g.app.session.doc.para(StoryRef::Body, &path).is_some_and(|p| g.app.session.doc.styles.resolve_para(&p.props).outline_level.is_some());
+    let fade = ctx.animate_bool_with_time(egui::Id::new(("glass_block_menu", b)), true, 0.12);
+    let mut pick: Option<&str> = None;
+    let area = egui::Area::new(egui::Id::new("glass_block_menu"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(pos2(at.x, at.y - 4.0 * (1.0 - fade)))
+        .show(ctx, |ui| {
+            ui.multiply_opacity(fade);
+            let bg = ui.painter().add(egui::Shape::Noop);
+            let inner = egui::Frame::NONE.inner_margin(6).show(ui, |ui| {
+                ui.set_width(220.0);
+                ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
+                let section = |ui: &mut Ui, text: &str| {
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+                    ui.painter().text(pos2(r.min.x + 10.0, r.center().y), egui::Align2::LEFT_CENTER, text, crate::tokens::small_caps(), t.text_dim);
+                };
+                let item = |ui: &mut Ui, glyph: &str, text: &str| -> bool {
+                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
+                    crate::tokens::paint_state(ui, r, 7, &resp, false, t);
+                    ui.painter().text(pos2(r.min.x + 18.0, r.center().y), egui::Align2::CENTER_CENTER, glyph, medium(12.0), t.text_dim);
+                    ui.painter().text(pos2(r.min.x + 34.0, r.center().y), egui::Align2::LEFT_CENTER, text, regular(13.0), t.text);
+                    resp.clicked()
+                };
+                section(ui, "TURN INTO");
+                for (glyph, text, id) in [
+                    ("T", "Text", "text"),
+                    ("H1", "Heading 1", "h1"),
+                    ("H2", "Heading 2", "h2"),
+                    ("H3", "Heading 3", "h3"),
+                    ("❝", "Quote", "quote"),
+                    ("•", "Bulleted list", "bullets"),
+                    ("1.", "Numbered list", "numbers"),
+                    ("☐", "To-do", "todo"),
+                ] {
+                    if item(ui, glyph, text) {
+                        pick = Some(id);
+                    }
+                }
+                if g.glass.prefs.pro && item(ui, "↗", if heading { "Turn into page (with its section)" } else { "Turn into page" }) {
+                    pick = Some("page");
+                }
+                ui.add_space(4.0);
+                let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
+                ui.painter().rect_filled(r.shrink2(vec2(8.0, 0.0)), 0.0, t.edge.gamma_multiply(0.6));
+                ui.add_space(4.0);
+                if heading && item(ui, "↗", "Open in Quick Reference") {
+                    pick = Some("quick");
+                }
+                for (glyph, text, id) in [
+                    ("+", "Duplicate", "dup"),
+                    ("↑", "Move up", "up"),
+                    ("↓", "Move down", "down"),
+                    ("≡", "Select", "select"),
+                    ("⌫", "Delete", "delete"),
+                ] {
+                    if item(ui, glyph, text) {
+                        pick = Some(id);
+                    }
+                }
+            });
+            ui.painter().set(bg, crate::tokens::popover_shape(inner.response.rect, 12, t));
+        });
+    if fade < 1.0 {
+        ctx.request_repaint();
+    }
+    let outside = ctx.input(|i| {
+        i.key_pressed(egui::Key::Escape) || (i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.response.rect.contains(p)))
+    });
+    let Some(pick) = pick else {
+        if outside {
+            g.glass.overlay.menu = None;
+        }
+        return;
+    };
+    g.glass.overlay.menu = None;
+    let start = Pos::new(StoryRef::Body, path.clone(), 0);
+    let end = Pos::new(StoryRef::Body, path.clone(), len);
+    g.app.session.sel = Selection::caret(start.clone());
+    let r: Result<(), String> = (|| match pick {
+        "text" => g.app.run("para.normal", json!({})).map(|_| ()),
+        "h1" => g.app.run("para.heading1", json!({})).map(|_| ()),
+        "h2" => g.app.run("para.heading2", json!({})).map(|_| ()),
+        "h3" => g.app.run("para.heading3", json!({})).map(|_| ()),
+        "quote" => g.app.run("para.style", json!({"style": "Quote"})).map(|_| ()),
+        "bullets" => g.app.run("para.bullets", json!({})).map(|_| ()),
+        "numbers" => g.app.run("para.numbering", json!({})).map(|_| ()),
+        "todo" => g.app.run("developer.checkBox", json!({})).map(|_| ()),
+        "page" => turn_into_page(g, b),
+        "quick" => {
+            g.glass.scriv.quick = Some(path.clone());
+            Ok(())
+        }
+        "up" => move_block(g, b, b.saturating_sub(1)).map(|_| ()),
+        "down" => move_block(g, b, b + 2).map(|_| ()),
+        "select" => {
+            g.app.session.sel = Selection { anchor: start.clone(), focus: end.clone() };
+            Ok(())
+        }
+        "dup" => {
+            let style = g.app.session.doc.para(StoryRef::Body, &path).and_then(|p| p.props.style.clone());
+            g.app.session.sel = Selection { anchor: start.clone(), focus: end.clone() };
+            g.app.run("edit.copy", json!({}))?;
+            g.app.session.sel = Selection::caret(end.clone());
+            g.app.run("text.newParagraph", json!({}))?;
+            if len > 0 {
+                g.app.session.run("edit.paste", &json!({})).map_err(|e| e.to_string())?;
+            }
+            if let Some(st) = style {
+                let _ = g.app.run("para.style", json!({"style": st}));
+            }
+            Ok(())
+        }
+        "delete" => {
+            let n = g.app.session.doc.story(StoryRef::Body).map(|x| x.len()).unwrap_or(0);
+            let next = Pos::new(StoryRef::Body, Path::top(b + 1), 0);
+            let next_is_para = g.app.session.doc.para(StoryRef::Body, &Path::top(b + 1)).is_some();
+            g.app.session.sel = if b + 1 < n && next_is_para {
+                Selection { anchor: start.clone(), focus: next }
+            } else {
+                Selection { anchor: start.clone(), focus: end.clone() }
+            };
+            g.app.run("text.delete", json!({})).map(|_| ())
+        }
+        _ => Ok(()),
+    })();
+    if let Err(e) = r {
+        g.app.status(e);
+    } else if !matches!(pick, "delete" | "page" | "quick" | "select") {
+        g.glass.overlay.pulse = Some((path, now_ms() / 1000.0));
+    }
+    g.app.canvas.want_focus = true;
 }
 
 /// The frosted copy of a dragged paragraph, trailing the pointer a little.
@@ -753,5 +1002,34 @@ mod tests {
         assert_eq!(move_block(&mut g, 3, 0).unwrap(), 0);
         assert_eq!(text(&g, 0), "Delta");
         assert_eq!(move_block(&mut g, 1, 2).unwrap(), 1);
+    }
+}
+
+#[cfg(test)]
+mod page_tests {
+    use super::*;
+    use wordcraft_engine::Session;
+    use wordcraft_ui_egui::{Services, WordApp};
+
+    #[test]
+    fn a_heading_turns_into_a_page_with_its_section() {
+        let mut g = GlassApp::new(WordApp::new(Session::new(wordcraft_engine::sample::sample_document()), Services::default()));
+        let secs = crate::project::sections(&g.app.session);
+        let target = secs.iter().find(|s| s.level > secs.iter().map(|x| x.level).min().unwrap_or(0)).unwrap().clone();
+        let b = target.path.last();
+        let before = crate::project::sections(&g.app.session).len();
+        turn_into_page(&mut g, b).unwrap();
+        // The section left this document; a link to the page stands in its place.
+        assert_eq!(crate::project::sections(&g.app.session).len(), before - 1);
+        let p = g.app.session.doc.para(StoryRef::Body, &Path::top(b)).unwrap();
+        assert!(p.props_of_char(0).link.as_deref().unwrap().starts_with(PAGE_SCHEME));
+        // The page is a tab of its own, starting with the heading.
+        assert_eq!(g.docs.tabs.len(), 2);
+        let page = g.docs.stash_mut(1).unwrap();
+        assert_eq!(page.doc.para(StoryRef::Body, &Path::top(0)).unwrap().plain_text().trim(), target.title);
+        // Undo brings the section back.
+        g.app.run("edit.undo", json!({})).unwrap();
+        while crate::project::sections(&g.app.session).len() < before && g.app.run("edit.undo", json!({})).is_ok() {}
+        assert_eq!(crate::project::sections(&g.app.session).len(), before);
     }
 }

@@ -27,6 +27,7 @@ mod home;
 pub mod overlay;
 mod panels;
 mod pro;
+mod scriv;
 mod thumbs;
 mod typewriter;
 mod widgets;
@@ -57,6 +58,10 @@ pub enum Panel {
     Pacing,
     /// Writer Pro: a character, place or research note.
     Note(u64),
+    /// Writer Pro: the Inspector (synopsis, notes, label, status).
+    Inspector,
+    /// Writer Pro: the split reference pane (a notes folder, or `None` for the manuscript).
+    Reference(Option<project::NoteKind>),
 }
 
 impl Panel {
@@ -112,6 +117,8 @@ pub struct GlassPrefs {
     pub handles: bool,
     /// Layout guides over the pages: margins, columns and a baseline grid.
     pub grid: bool,
+    /// Writer Pro: headings in tinted boxes with dashed rules between sections (Scrivenings).
+    pub scrivenings: bool,
 }
 
 impl Default for GlassPrefs {
@@ -128,6 +135,7 @@ impl Default for GlassPrefs {
             rhythm: false,
             handles: true,
             grid: false,
+            scrivenings: true,
         }
     }
 }
@@ -177,6 +185,10 @@ pub struct GlassState {
     pub overlay: overlay::Overlay,
     /// Page thumbnails (Navigation › Pages, tab previews).
     pub(crate) thumbs: thumbs::Thumbs,
+    /// Typewriter scrolling.
+    pub(crate) typewriter: typewriter::Typewriter,
+    /// Writer Pro's Binder folds, section history, reference pane and Quick Reference.
+    pub scriv: scriv::Scriv,
 }
 
 /// The Glass application: the WordCraft app plus the Glass chrome and features.
@@ -288,6 +300,9 @@ impl GlassApp {
             Local::Rhythm => g.prefs.rhythm,
             Local::Guides => g.prefs.grid,
             Local::Handles => g.prefs.handles,
+            Local::Inspector => g.panel == Some(Panel::Inspector),
+            Local::Split => matches!(g.panel, Some(Panel::Reference(_))),
+            Local::Sections => g.prefs.scrivenings,
         }
     }
 
@@ -342,6 +357,15 @@ impl GlassApp {
             Local::Rhythm => self.glass.prefs.rhythm = !self.glass.prefs.rhythm,
             Local::Guides => self.glass.prefs.grid = !self.glass.prefs.grid,
             Local::Handles => self.glass.prefs.handles = !self.glass.prefs.handles,
+            Local::Inspector => self.glass.panel = flip(self.glass.panel, Panel::Inspector),
+            Local::Split => {
+                self.glass.panel = if matches!(self.glass.panel, Some(Panel::Reference(_))) {
+                    None
+                } else {
+                    Some(Panel::Reference(Some(project::NoteKind::Character)))
+                }
+            }
+            Local::Sections => self.glass.prefs.scrivenings = !self.glass.prefs.scrivenings,
         }
     }
 
@@ -447,7 +471,7 @@ impl GlassApp {
         let area = ui.available_rect_before_wrap();
         dock::show(self, ui, t, &dock::VERSIONS, versions && !focus, area, |g, ui| panels::versions(g, ui, t));
         dock::show(self, ui, t, &dock::SIDE, side && !focus, area, |g, ui| pro::side(g, ui, t));
-        dock::show(self, ui, t, &dock::BINDER, pro && self.glass.prefs.binder && !focus, area, |g, ui| pro::binder(g, ui, t));
+        dock::show(self, ui, t, &dock::BINDER, pro && self.glass.prefs.binder && !focus, area, |g, ui| scriv::binder(g, ui, t));
         dock::show(self, ui, t, &dock::NAVIGATION, nav && !focus && !(pro && self.glass.prefs.binder), area, |g, ui| panels::navigation(g, ui, t));
         let view = self.glass.view;
         let typewriter = ctx.animate_bool_with_time(egui::Id::new("glass_typewriter_fade"), self.glass.prefs.typewriter && view == View::Page, 0.25);
@@ -465,7 +489,13 @@ impl GlassApp {
                     View::Corkboard if self.glass.prefs.pro => pro::corkboard(self, ui, t),
                     View::Outliner if self.glass.prefs.pro => pro::outliner(self, ui, t),
                     _ => {
+                        if self.glass.prefs.pro && !focus {
+                            scriv::editor_bar(self, ui, t);
+                        }
                         overlay::before_canvas(self, ui);
+                        if self.glass.prefs.typewriter {
+                            typewriter::center(&mut self.glass.typewriter, &mut self.app, ui);
+                        }
                         canvas::show(&mut self.app, ui);
                         overlay::show(self, ui, t);
                         if typewriter > 0.0 {
@@ -474,7 +504,12 @@ impl GlassApp {
                     }
                 }
             });
+        if self.glass.prefs.pro {
+            scriv::track(self);
+            scriv::quick_reference(self, &ctx, t);
+        }
         if view == View::Page {
+            overlay::block_menu(self, &ctx, t);
             inline::show(self, &ctx, t);
         } else {
             self.glass.inline.open = false;

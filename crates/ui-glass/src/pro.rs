@@ -40,125 +40,6 @@ fn current_section(g: &GlassApp, secs: &[Section]) -> Option<usize> {
     secs.iter().rposition(|s| s.path <= *caret)
 }
 
-fn section_header(ui: &mut Ui, t: &Tokens, title: &str, plus: bool) -> bool {
-    ui.add_space(10.0);
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
-    ui.painter().text(pos2(r.min.x + 8.0, r.center().y), Align2::LEFT_CENTER, title, semibold(11.0), t.text_dim);
-    if plus {
-        let b = Rect::from_center_size(pos2(r.max.x - 12.0, r.center().y), vec2(20.0, 20.0));
-        let resp = ui.interact(b, ui.id().with(("binder_plus", title)), Sense::click()).on_hover_text("Add");
-        paint_state(ui, b, radius::CAPSULE, &resp, false, t);
-        let c = b.center();
-        let st = egui::Stroke::new(1.4, t.text_dim);
-        ui.painter().line_segment([pos2(c.x - 4.0, c.y), pos2(c.x + 4.0, c.y)], st);
-        ui.painter().line_segment([pos2(c.x, c.y - 4.0), pos2(c.x, c.y + 4.0)], st);
-        return resp.clicked();
-    }
-    false
-}
-
-fn binder_row(ui: &mut Ui, t: &Tokens, text: &str, indent: f32, dot: Option<egui::Color32>, on: bool) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
-    paint_state(ui, r, 9, &resp, on, t);
-    let mut x = r.min.x + 10.0 + indent;
-    if let Some(c) = dot {
-        ui.painter().circle_filled(pos2(x + 3.0, r.center().y), 3.5, c);
-        x += 14.0;
-    }
-    let max = ((r.max.x - x - 8.0) / 6.8).max(3.0) as usize;
-    let shown: String = if text.chars().count() > max { format!("{}…", text.chars().take(max).collect::<String>()) } else { text.to_string() };
-    ui.painter().text(
-        pos2(x, r.center().y),
-        Align2::LEFT_CENTER,
-        shown,
-        if on { medium(12.5) } else { regular(12.5) },
-        if on { t.accent } else { t.text },
-    );
-    resp
-}
-
-/// The Binder: the whole project in one tree. Manuscript sections, open documents, notes and the
-/// Scratchpad.
-pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
-    {
-        {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Binder").font(semibold(15.0)).color(t.text));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if w::icon_capsule(ui, t, "close", "Hide Binder", 24.0, false, true).clicked() {
-                        g.glass.prefs.binder = false;
-                    }
-                });
-            });
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                ui.spacing_mut().item_spacing = vec2(0.0, 1.0);
-                let secs = sections(&g.app.session);
-                let current = current_section(g, &secs);
-                let pkey = key(&g.app.session);
-                section_header(ui, t, "MANUSCRIPT", false);
-                if secs.is_empty() {
-                    ui.label(egui::RichText::new("  Add headings to see chapters and scenes here.").font(regular(11.5)).color(t.text_dim));
-                }
-                let base = secs.iter().map(|s| s.level).min().unwrap_or(0);
-                let mut go: Option<usize> = None;
-                for (i, s) in secs.iter().enumerate() {
-                    let status = g.glass.projects.by_doc.get(&pkey).map(|p| p.card(&s.title).status).unwrap_or_default();
-                    let indent = f32::from(s.level.saturating_sub(base).min(5)) * 14.0;
-                    if binder_row(ui, t, &s.title, indent, Some(status_color(status, t)), current == Some(i) && g.glass.view == View::Page)
-                        .on_hover_text(format!("{} words", s.words))
-                        .clicked()
-                    {
-                        go = Some(i);
-                    }
-                }
-                if let Some(s) = go.and_then(|i| secs.get(i)) {
-                    go_to(g, s);
-                }
-
-                section_header(ui, t, "DOCUMENTS", false);
-                let mut switch: Option<usize> = None;
-                for i in 0..g.docs.tabs.len() {
-                    let on = i == g.docs.active;
-                    if binder_row(ui, t, &g.tab_title(i), 0.0, None, on).clicked() {
-                        switch = Some(i);
-                    }
-                }
-                if let Some(i) = switch {
-                    g.switch_to(i);
-                }
-
-                for kind in NoteKind::ALL {
-                    if section_header(ui, t, &kind.plural().to_uppercase(), true) {
-                        let title = format!("New {}", kind.name());
-                        let id = g.glass.projects.by_doc.entry(pkey.clone()).or_default().add_note(kind, &title);
-                        g.glass.panel = Some(Panel::Note(id));
-                    }
-                    let notes: Vec<(u64, String)> = g
-                        .glass
-                        .projects
-                        .by_doc
-                        .get(&pkey)
-                        .map(|p| p.notes.iter().filter(|n| n.kind == kind).map(|n| (n.id, n.title.clone())).collect())
-                        .unwrap_or_default();
-                    for (id, title) in notes {
-                        let on = g.glass.panel == Some(Panel::Note(id));
-                        if binder_row(ui, t, &title, 0.0, None, on).clicked() {
-                            g.glass.panel = if on { None } else { Some(Panel::Note(id)) };
-                        }
-                    }
-                }
-
-                section_header(ui, t, "SCRATCHPAD", false);
-                let n = g.glass.projects.by_doc.get(&pkey).map(|p| p.scraps.len()).unwrap_or(0);
-                let on = g.glass.panel == Some(Panel::Scratchpad);
-                if binder_row(ui, t, &format!("Cut text ({n})"), 0.0, None, on).clicked() {
-                    g.glass.panel = if on { None } else { Some(Panel::Scratchpad) };
-                }
-            });
-        }
-    }
-}
-
 /// Which sections the Corkboard shows: chapters (the top level) or every section.
 fn board_sections(g: &GlassApp, secs: &[Section]) -> Vec<usize> {
     let base = secs.iter().map(|s| s.level).min().unwrap_or(0);
@@ -439,6 +320,8 @@ pub fn side(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     match kind {
         Some(Panel::Pacing) => pacing(g, ui, t),
         Some(Panel::Note(id)) => note(g, ui, t, id),
+        Some(Panel::Inspector) => crate::scriv::inspector(g, ui, t),
+        Some(Panel::Reference(kind)) => crate::scriv::reference(g, ui, t, kind),
         _ => scratchpad(g, ui, t),
     }
 }

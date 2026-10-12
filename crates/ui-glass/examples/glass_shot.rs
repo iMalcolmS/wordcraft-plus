@@ -79,6 +79,8 @@ fn main() {
                 "pacing" => Local::Pacing,
                 "sprint" => Local::Sprint,
                 "appearance" => Local::Appearance,
+                "inspector" => Local::Inspector,
+                "split" => Local::Split,
                 _ => Local::Typewriter,
             };
             harness.state_mut().toggle(local);
@@ -97,7 +99,8 @@ fn main() {
         } else if let Some(p) = l.get("pointer").and_then(|v| v.as_array()) {
             let pos = egui::pos2(p.first().and_then(|x| x.as_f64()).unwrap_or(0.0) as f32, p.get(1).and_then(|x| x.as_f64()).unwrap_or(0.0) as f32);
             harness.input_mut().events.push(egui::Event::PointerMoved(pos));
-            step_n(&mut harness, 3);
+            // A press and its release must land within egui's click time: one frame each.
+            step_n(&mut harness, if l.get("button").is_some() { 1 } else { 3 });
             if let Some(btn) = l.get("button").and_then(|v| v.as_str()) {
                 harness.input_mut().events.push(egui::Event::PointerButton {
                     pos,
@@ -105,8 +108,21 @@ fn main() {
                     pressed: btn == "down",
                     modifiers: egui::Modifiers::NONE,
                 });
-                step_n(&mut harness, 3);
+                step_n(&mut harness, 1);
             }
+        } else if let Some(id) = l.get("print").and_then(|v| v.as_str()) {
+            let r = harness.state_mut().app.session.run(id, &serde_json::json!({}));
+            println!("{id}: {}", r.map(|v| v.to_string()).unwrap_or_else(|e| e.to_string()).chars().take(200).collect::<String>());
+        } else if let Some(b) = l.get("quick").and_then(|v| v.as_u64()) {
+            harness.state_mut().glass.scriv.quick = Some(wordcraft_engine::doc::Path::top(b as usize));
+            step_n(&mut harness, 4);
+        } else if let Some(b) = l.get("blockmenu").and_then(|v| v.as_u64()) {
+            harness.state_mut().glass.overlay.menu = Some((b as usize, egui::pos2(380.0, 360.0)));
+            step_n(&mut harness, 10);
+        } else if let Some(b) = l.get("topage").and_then(|v| v.as_u64()) {
+            let r = wordcraft_ui_glass::overlay::turn_into_page(harness.state_mut(), b as usize);
+            println!("turn into page: {r:?}");
+            step_n(&mut harness, 4);
         } else if let Some(tab) = l.get("navtab").and_then(|v| v.as_str()) {
             harness.state_mut().app.ui.nav_tab = tab.to_string();
             step_n(&mut harness, 2);

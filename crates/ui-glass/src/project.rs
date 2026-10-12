@@ -96,12 +96,55 @@ impl Status {
     pub const ALL: [Status; 4] = [Status::ToDo, Status::Draft, Status::Revised, Status::Done];
 }
 
-/// A section's card: its status and synopsis, keyed by its heading's text.
+/// A colour label for a section, as in Scrivener: it tints the section's heading on the page,
+/// its card and its row in the Binder.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Label {
+    #[default]
+    None,
+    Rose,
+    Amber,
+    Lime,
+    Sky,
+    Violet,
+}
+
+impl Label {
+    pub const ALL: [Label; 6] = [Label::None, Label::Rose, Label::Amber, Label::Lime, Label::Sky, Label::Violet];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Label::None => "No Label",
+            Label::Rose => "Rose",
+            Label::Amber => "Amber",
+            Label::Lime => "Lime",
+            Label::Sky => "Sky",
+            Label::Violet => "Violet",
+        }
+    }
+
+    /// The label's colour (`None` has none).
+    pub fn rgb(self) -> Option<(u8, u8, u8)> {
+        match self {
+            Label::None => None,
+            Label::Rose => Some((0xE8, 0x5D, 0x75)),
+            Label::Amber => Some((0xE0, 0x9B, 0x2D)),
+            Label::Lime => Some((0x5C, 0xB8, 0x5C)),
+            Label::Sky => Some((0x3D, 0x9B, 0xE8)),
+            Label::Violet => Some((0x9B, 0x6B, 0xE0)),
+        }
+    }
+}
+
+/// A section's card: its status, label, synopsis and notes, keyed by its heading's text.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Card {
     pub status: Status,
     pub synopsis: String,
+    pub label: Label,
+    /// The section's own notes (the Inspector's Notes).
+    pub notes: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
