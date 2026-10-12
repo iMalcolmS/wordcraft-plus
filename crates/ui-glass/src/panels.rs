@@ -29,34 +29,195 @@ fn row(ui: &mut Ui, t: &Tokens, text: &str, indent: f32, bold: bool, on: bool) -
     resp
 }
 
-/// View › Navigation Pane, as glass: the document's headings, or its pages.
+/// The Navigation pane's views: page thumbnails, headings, comments, search.
+const NAV_TABS: [(&str, &str, &str); 4] = [
+    ("pages", "multiplePages", "Pages"),
+    ("headings", "outline", "Headings"),
+    ("comments", "showComments", "Comments"),
+    ("search", "find", "Search"),
+];
+
+/// View › Navigation Pane, as glass: page thumbnails, headings, comments or search, picked by
+/// icon tabs whose highlight glides between them.
 pub fn navigation(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
-    {
-        {
-            {
-                ui.horizontal(|ui| {
-                    let tabs = ["Headings", "Pages"];
-                    let sel = usize::from(g.app.ui.nav_tab == "pages");
-                    if let Some(i) = w::segmented(ui, t, &tabs, sel, 30.0) {
-                        g.app.ui.nav_tab = if i == 1 { "pages".into() } else { "headings".into() };
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if close_button(ui, t) {
-                            w::run(ui, &mut g.app, "view.navigationPane", json!({"value": false}));
-                        }
-                    });
-                });
-                ui.add_space(8.0);
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
-                    if g.app.ui.nav_tab == "pages" {
-                        pages(g, ui, t);
-                    } else {
-                        headings(g, ui, t);
-                    }
-                });
+    if !NAV_TABS.iter().any(|(k, _, _)| *k == g.app.ui.nav_tab) {
+        g.app.ui.nav_tab = "pages".into();
+    }
+    ui.horizontal(|ui| {
+        let size = vec2(38.0, 30.0);
+        let (track, _) = ui.allocate_exact_size(vec2(size.x * NAV_TABS.len() as f32 + 6.0, size.y + 6.0), Sense::hover());
+        crate::tokens::paint_fill(ui.painter(), track, radius::CAPSULE, t.fill);
+        let sel = NAV_TABS.iter().position(|(k, _, _)| *k == g.app.ui.nav_tab).unwrap_or(0);
+        let x = crate::tokens::glide(ui.ctx(), egui::Id::new("glass_nav_pill"), sel as f32, 0.28);
+        let pill = Rect::from_min_size(pos2(track.min.x + 3.0 + x * size.x, track.min.y + 3.0), size);
+        crate::tokens::paint_pill(ui.painter(), pill, t);
+        for (i, (key, icon, tip)) in NAV_TABS.iter().enumerate() {
+            let r = Rect::from_min_size(pos2(track.min.x + 3.0 + i as f32 * size.x, track.min.y + 3.0), size);
+            let resp = ui.interact(r, ui.id().with(("glass_nav_tab", *key)), Sense::click()).on_hover_text(*tip);
+            let c = if i == sel {
+                t.accent
+            } else if resp.hovered() {
+                t.text
+            } else {
+                t.text_dim
+            };
+            wordcraft_ui_egui::icons::paint(ui.painter(), Rect::from_center_size(r.center(), vec2(18.0, 18.0)), icon, c, t.accent);
+            if resp.clicked() {
+                g.app.ui.nav_tab = (*key).into();
             }
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if close_button(ui, t) {
+                w::run(ui, &mut g.app, "view.navigationPane", json!({"value": false}));
+            }
+        });
+    });
+    ui.add_space(10.0);
+    let tab = g.app.ui.nav_tab.clone();
+    if tab == "search" {
+        search(g, ui, t);
+        return;
+    }
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+        match tab.as_str() {
+            "pages" => pages(g, ui, t),
+            "comments" => comments(g, ui, t),
+            _ => headings(g, ui, t),
+        }
+    });
+}
+
+/// The document's comments: author, text, and a click goes to where each is anchored.
+fn comments(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+    let list = g.app.session.run("review.comments", &json!({})).ok().and_then(|v| v.as_array().cloned()).unwrap_or_default();
+    if list.is_empty() {
+        hint(ui, t, "No comments. Select text and use Review › New Comment to add one.");
+        return;
+    }
+    for c in list {
+        let author = c.get("author").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let text = c.get("text").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let resolved = c.get("resolved").and_then(|v| v.as_bool()).unwrap_or(false);
+        let anchor: Option<Pos> = c.get("anchor").cloned().and_then(|a| serde_json::from_value(a).ok());
+        let bg = ui.painter().add(Shape::Noop);
+        let resp = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(10, 8)).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(egui::RichText::new(if author.is_empty() { "Comment" } else { &author }).font(semibold(12.0)).color(t.text));
+            ui.add(
+                egui::Label::new(egui::RichText::new(clip(&text, 160)).font(regular(12.0)).color(if resolved { t.text_dim } else { t.text })).wrap(),
+            );
+        });
+        let r = resp.response.rect;
+        let click = ui.interact(r, ui.id().with(("glass_comment", r.min.y as i32)), Sense::click());
+        let fill = if click.hovered() { t.hover } else { t.fill };
+        ui.painter().set(bg, Shape::rect_filled(r, egui::CornerRadius::same(10), fill));
+        if click.clicked()
+            && let Some(p) = anchor
+        {
+            w::run(ui, &mut g.app, "caret.set", json!({ "pos": p }));
+            g.app.canvas.scroll_to_caret = true;
+            g.app.canvas.want_focus = true;
+        }
+        ui.add_space(4.0);
+    }
+}
+
+/// Byte ranges in `text` where `query` occurs, ignoring case.
+pub fn find_all(text: &str, query: &str) -> Vec<(usize, usize)> {
+    let q: Vec<char> = query.chars().flat_map(char::to_lowercase).collect();
+    if q.is_empty() {
+        return Vec::new();
+    }
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let mut k = 0;
+        let mut j = i;
+        while k < q.len() && j < chars.len() {
+            let Some(&(_, c)) = chars.get(j) else { break };
+            let lc: Vec<char> = c.to_lowercase().collect();
+            if q.get(k..k + lc.len()) != Some(lc.as_slice()) {
+                break;
+            }
+            k += lc.len();
+            j += 1;
+        }
+        if k == q.len() {
+            let start = chars.get(i).map(|c| c.0).unwrap_or(0);
+            let end = chars.get(j).map(|c| c.0).unwrap_or(text.len());
+            out.push((start, end));
+            i = j.max(i + 1);
+        } else {
+            i += 1;
+        }
+        if out.len() >= 500 {
+            break;
+        }
+    }
+    out
+}
+
+/// Search the document: every match with a snippet; a click selects it on the page.
+fn search(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+    let qid = egui::Id::new("glass_nav_search");
+    let mut q: String = ui.data(|d| d.get_temp(qid)).unwrap_or_default();
+    let field = ui.add(egui::TextEdit::singleline(&mut q).hint_text("Search document").desired_width(ui.available_width()).margin(vec2(10.0, 7.0)));
+    if field.changed() {
+        ui.data_mut(|d| d.insert_temp(qid, q.clone()));
+    }
+    ui.add_space(8.0);
+    if q.trim().is_empty() {
+        hint(ui, t, "Type to find words and phrases; each match shows with the text around it.");
+        return;
+    }
+    let doc = &g.app.session.doc;
+    let mut hits: Vec<(Pos, Pos, String)> = Vec::new();
+    for path in doc.para_paths(StoryRef::Body) {
+        let Some(p) = doc.para(StoryRef::Body, &path) else { continue };
+        for (a, b) in find_all(&p.text, q.trim()) {
+            let before: String = p.text.get(..a).unwrap_or("").chars().rev().take(28).collect::<Vec<_>>().into_iter().rev().collect();
+            let hit = p.text.get(a..b).unwrap_or("");
+            let after: String = p.text.get(b..).unwrap_or("").chars().take(40).collect();
+            let clean = |s: &str| s.replace(wordcraft_engine::doc::para::OBJ, "");
+            hits.push((
+                Pos::new(StoryRef::Body, path.clone(), a),
+                Pos::new(StoryRef::Body, path.clone(), b),
+                format!("{}\u{1}{}\u{1}{}", clean(&before), clean(hit), clean(&after)),
+            ));
+            if hits.len() >= 300 {
+                break;
+            }
+        }
+    }
+    ui.label(egui::RichText::new(format!("{} result{}", hits.len(), if hits.len() == 1 { "" } else { "s" })).font(semibold(11.5)).color(t.text_dim));
+    ui.add_space(4.0);
+    let mut go: Option<(Pos, Pos)> = None;
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        for (a, b, snippet) in &hits {
+            let mut parts = snippet.split('\u{1}');
+            let (pre, hit, post) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+            let mut job = LayoutJob::default();
+            job.wrap.max_width = ui.available_width() - 20.0;
+            job.wrap.max_rows = 2;
+            let base = egui::TextFormat { font_id: regular(12.0), color: t.text_dim, ..Default::default() };
+            job.append(pre.trim_start(), 0.0, base.clone());
+            job.append(hit, 0.0, egui::TextFormat { color: t.text, background: t.accent_soft, font_id: semibold(12.0), ..Default::default() });
+            job.append(post, 0.0, base);
+            let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), galley.size().y + 14.0), Sense::click());
+            crate::tokens::paint_state(ui, r, 8, &resp, false, t);
+            ui.painter().galley(pos2(r.min.x + 10.0, r.min.y + 7.0), galley, t.text);
+            if resp.clicked() {
+                go = Some((a.clone(), b.clone()));
+            }
+        }
+    });
+    if let Some((a, b)) = go {
+        g.app.session.sel = wordcraft_engine::Selection { anchor: a, focus: b };
+        g.app.canvas.scroll_to_caret = true;
+        g.app.canvas.want_focus = true;
     }
 }
 
@@ -419,5 +580,18 @@ mod tests {
     fn clipping_respects_characters() {
         assert_eq!(clip("Inês", 3), "Inê…");
         assert_eq!(clip("ok", 5), "ok");
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::find_all;
+
+    #[test]
+    fn finds_every_match_ignoring_case() {
+        assert_eq!(find_all("Ação, ação e AÇÃO.", "ação").len(), 3);
+        assert_eq!(find_all("aaa", "aa"), vec![(0, 2)]);
+        assert!(find_all("abc", "").is_empty());
+        assert!(find_all("", "x").is_empty());
     }
 }

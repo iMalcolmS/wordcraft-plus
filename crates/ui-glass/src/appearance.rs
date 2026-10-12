@@ -197,7 +197,7 @@ pub fn show(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
                         g.glass.prefs.grid = on;
                     }
                 });
-                row(ui, t, "Block handles (Writer Pro)", |ui| {
+                row(ui, t, "Block handles", |ui| {
                     let mut on = g.glass.prefs.handles;
                     if w::switch(ui, t, &mut on).changed() {
                         g.glass.prefs.handles = on;

@@ -314,6 +314,36 @@ pub fn frost_shape(rect: Rect, r: u8, t: &Tokens) -> egui::Shape {
     ])
 }
 
+/// A value that glides to `target` over `secs`, easing out (fast, then settling), restarting from
+/// wherever it is when the target changes. Smoother than a linear tween for pills, highlights
+/// and handles that follow the user.
+pub fn glide(ctx: &egui::Context, id: egui::Id, target: f32, secs: f32) -> f32 {
+    #[derive(Clone, Copy)]
+    struct Glide {
+        from: f32,
+        to: f32,
+        start: f64,
+    }
+    let now = ctx.input(|i| i.time);
+    let g = ctx.data(|d| d.get_temp::<Glide>(id));
+    let at = |g: Glide| {
+        let p = (((now - g.start) as f32) / secs.max(0.001)).clamp(0.0, 1.0);
+        let e = 1.0 - (1.0 - p).powi(4);
+        (g.from + (g.to - g.from) * e, p)
+    };
+    let g = match g {
+        None => Glide { from: target, to: target, start: now },
+        Some(g) if (g.to - target).abs() > 0.01 => Glide { from: at(g).0, to: target, start: now },
+        Some(g) => g,
+    };
+    ctx.data_mut(|d| d.insert_temp(id, g));
+    let (v, p) = at(g);
+    if p < 1.0 {
+        ctx.request_repaint();
+    }
+    v
+}
+
 /// The font for small-caps section titles in menus.
 pub fn small_caps() -> egui::FontId {
     wordcraft_ui_egui::theme::semibold(10.5)

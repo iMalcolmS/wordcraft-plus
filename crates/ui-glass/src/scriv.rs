@@ -225,7 +225,7 @@ pub fn editor_bar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
         }
         let split = matches!(g.glass.panel, Some(Panel::Reference(_)));
         if w::icon_capsule(ui, t, "split", "Split: Characters, Places, Research or the manuscript beside the page", 24.0, split, true).clicked() {
-            g.glass.panel = if split { None } else { Some(Panel::Reference(Some(NoteKind::Character))) };
+            g.glass.panel = if split { None } else { Some(Panel::Reference(RefView::Document(None))) };
         }
         ui.add_space(6.0);
         let next = cur.map_or(0, |i| i + 1);
@@ -368,28 +368,96 @@ pub fn inspector(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
 // ---------------------------------------------------------------------------------------------
 // The reference pane (the split).
 
-/// The reference pane: a folder's items with their synopses, the selected one open beneath.
-/// `kind`: a notes folder, or `None` for the manuscript's sections.
-pub fn reference(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, kind: Option<NoteKind>) {
+/// What the split shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefView {
+    /// A document's pages, read beside the one being written: this document (`None`), or
+    /// another open tab (by its id).
+    Document(Option<u64>),
+    /// The manuscript's sections with their synopses.
+    Manuscript,
+    /// A notes folder.
+    Notes(NoteKind),
+}
+
+impl RefView {
+    fn name(self, g: &GlassApp) -> String {
+        match self {
+            RefView::Document(None) => "This Document".into(),
+            RefView::Document(Some(uid)) => {
+                g.docs.tabs.iter().position(|x| x.uid == uid).map(|i| g.tab_title(i)).unwrap_or_else(|| "Document".into())
+            }
+            RefView::Manuscript => "Manuscript".into(),
+            RefView::Notes(k) => k.plural().into(),
+        }
+    }
+    fn icon(self) -> Icon {
+        match self {
+            RefView::Document(_) => Icon::Doc,
+            RefView::Manuscript => Icon::Manuscript,
+            RefView::Notes(k) => kind_icon(k),
+        }
+    }
+}
+
+/// The split: another document (or another part of this one) beside the page, as Scrivener's
+/// split editor; or the manuscript's sections, or a notes folder. Pick what it shows from the
+/// menu in its header.
+pub fn reference(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, view: RefView) {
     ui.horizontal(|ui| {
         let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
-        icon(ui.painter(), ir, kind.map_or(Icon::Manuscript, kind_icon), t);
-        let name = kind.map_or("Manuscript", NoteKind::plural);
-        ui.label(egui::RichText::new(name).font(semibold(14.0)).color(t.text));
+        icon(ui.painter(), ir, view.icon(), t);
+        let name = view.name(g);
+        let font = semibold(14.0);
+        let tw = ui.ctx().fonts_mut(|f| f.layout_no_wrap(format!("{name}  ⌄"), font.clone(), t.text).size().x).min(ui.available_width() - 40.0);
+        let (r, resp) = ui.allocate_exact_size(vec2(tw + 12.0, 26.0), Sense::click());
+        paint_state(ui, r, 8, &resp, false, t);
+        ui.painter().text(pos2(r.min.x + 6.0, r.center().y), Align2::LEFT_CENTER, format!("{name}  ⌄"), font, t.text);
+        egui::Popup::menu(&resp).show(|ui| {
+            ui.set_min_width(220.0);
+            ui.label(egui::RichText::new("DOCUMENTS").font(semibold(10.5)).color(t.text_dim));
+            if ui.selectable_label(view == RefView::Document(None), "This Document").clicked() {
+                g.glass.panel = Some(Panel::Reference(RefView::Document(None)));
+                ui.close();
+            }
+            let tabs: Vec<(u64, String)> =
+                (0..g.docs.tabs.len()).filter(|i| *i != g.docs.active).filter_map(|i| g.docs.tabs.get(i).map(|x| (x.uid, g.tab_title(i)))).collect();
+            for (uid, title) in tabs {
+                if ui.selectable_label(view == RefView::Document(Some(uid)), title).clicked() {
+                    g.glass.panel = Some(Panel::Reference(RefView::Document(Some(uid))));
+                    ui.close();
+                }
+            }
+            ui.separator();
+            ui.label(egui::RichText::new("PROJECT").font(semibold(10.5)).color(t.text_dim));
+            for (v, label) in [
+                (RefView::Manuscript, "Manuscript"),
+                (RefView::Notes(NoteKind::Character), "Characters"),
+                (RefView::Notes(NoteKind::Place), "Places"),
+                (RefView::Notes(NoteKind::Research), "Research"),
+            ] {
+                if ui.selectable_label(view == v, label).clicked() {
+                    g.glass.panel = Some(Panel::Reference(v));
+                    g.glass.scriv.ref_note = None;
+                    ui.close();
+                }
+            }
+        });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if w::icon_capsule(ui, t, "close", "Close the split", 24.0, false, true).clicked() {
                 g.glass.panel = None;
             }
         });
     });
-    ui.add_space(6.0);
-    let all = [None, Some(NoteKind::Character), Some(NoteKind::Place), Some(NoteKind::Research)];
-    let sel = all.iter().position(|k| *k == kind).unwrap_or(0);
-    if let Some(i) = w::segmented(ui, t, &["Manuscript", "Characters", "Places", "Research"], sel, 26.0) {
-        g.glass.panel = Some(Panel::Reference(all.get(i).copied().flatten()));
-        g.glass.scriv.ref_note = None;
-    }
     ui.add_space(8.0);
+    let kind = match view {
+        RefView::Document(uid) => {
+            document_view(g, ui, t, uid);
+            return;
+        }
+        RefView::Manuscript => None,
+        RefView::Notes(k) => Some(k),
+    };
     let pkey = key(&g.app.session);
     match kind {
         None => {
@@ -497,6 +565,71 @@ fn item(ui: &mut Ui, t: &Tokens, kind: Icon, title: &str, synopsis: &str, on: bo
         ui.painter().galley(pos2(r.min.x + 28.0, r.min.y + 24.0), galley, t.text_dim);
     }
     resp
+}
+
+/// A document's pages, rendered by the engine, scrolling at the pane's width. Click a page of
+/// this document to go there; for another document, Open brings it into the editor.
+fn document_view(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, uid: Option<u64>) {
+    let tab = match uid {
+        None => None,
+        Some(u) => match g.docs.tabs.iter().position(|x| x.uid == u) {
+            Some(i) if i != g.docs.active => Some(i),
+            Some(_) => None,
+            None => {
+                ui.label(egui::RichText::new("That document was closed.").font(regular(12.0)).color(t.text_dim));
+                return;
+            }
+        },
+    };
+    let pages = match tab {
+        None => g.app.session.layout().pages.len(),
+        Some(i) => g.docs.stash_mut(i).map(|s| s.layout().pages.len()).unwrap_or(0),
+    };
+    if let Some(i) = tab {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(format!("{pages} page{}", if pages == 1 { "" } else { "s" })).font(regular(11.5)).color(t.text_dim));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if w::quiet_button(ui, t, "Open in Editor", None, 26.0).clicked() {
+                    g.switch_to(i);
+                    g.glass.panel = Some(Panel::Reference(RefView::Document(None)));
+                }
+            });
+        });
+        ui.add_space(6.0);
+    }
+    let ctx = ui.ctx().clone();
+    let ppp = ctx.pixels_per_point();
+    let mut go: Option<usize> = None;
+    egui::ScrollArea::vertical().id_salt(("glass_split_pages", uid)).auto_shrink([false, false]).show(ui, |ui| {
+        let w = ui.available_width() - 4.0;
+        for p in 0..pages {
+            let tex = g.thumbnail(&ctx, tab, p, (w * ppp) as u32);
+            let h = tex.as_ref().map(|x| w * x.size_vec2().y / x.size_vec2().x.max(1.0)).unwrap_or(w * 1.294);
+            let (r, resp) = ui.allocate_exact_size(vec2(w, h), Sense::click());
+            let r = r.shrink2(vec2(2.0, 0.0));
+            let shadow = egui::epaint::Shadow { offset: [0, 2], blur: 8, spread: 0, color: t.shadow };
+            ui.painter().add(shadow.as_shape(r, egui::CornerRadius::same(3)));
+            match &tex {
+                Some(tex) => {
+                    ui.painter().image(tex.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                }
+                None => {
+                    ui.painter().rect_filled(r, 3.0, Color32::WHITE);
+                }
+            }
+            if resp.hovered() && tab.is_none() {
+                ui.painter().rect_stroke(r, 3.0, Stroke::new(1.5, t.accent.gamma_multiply(0.6)), egui::StrokeKind::Outside);
+            }
+            if resp.on_hover_text(if tab.is_none() { "Go to this page" } else { "Double-click to open" }).clicked() && tab.is_none() {
+                go = Some(p);
+            }
+            ui.add_space(12.0);
+        }
+    });
+    if let Some(p) = go {
+        let _ = g.app.run("edit.goto", json!({"page": p + 1}));
+        g.app.canvas.want_focus = true;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -645,7 +778,7 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 kind_icon(kind),
                 kind.plural(),
                 Some(open),
-                matches!(g.glass.panel, Some(Panel::Reference(Some(k))) if k == kind),
+                matches!(g.glass.panel, Some(Panel::Reference(RefView::Notes(k))) if k == kind),
                 None,
             );
             // A + appears on the folder's row.
@@ -663,7 +796,7 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
             } else if tog {
                 toggle_fold(g, &fold_key);
             } else if resp.clicked() {
-                g.glass.panel = Some(Panel::Reference(Some(kind)));
+                g.glass.panel = Some(Panel::Reference(RefView::Notes(kind)));
             }
             if open {
                 let notes: Vec<(u64, String)> = g

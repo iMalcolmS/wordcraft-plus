@@ -27,7 +27,7 @@ mod home;
 pub mod overlay;
 mod panels;
 mod pro;
-mod scriv;
+pub mod scriv;
 mod thumbs;
 mod typewriter;
 mod widgets;
@@ -61,7 +61,7 @@ pub enum Panel {
     /// Writer Pro: the Inspector (synopsis, notes, label, status).
     Inspector,
     /// Writer Pro: the split reference pane (a notes folder, or `None` for the manuscript).
-    Reference(Option<project::NoteKind>),
+    Reference(scriv::RefView),
 }
 
 impl Panel {
@@ -164,6 +164,8 @@ pub struct GlassState {
     /// The ribbon tab last shown, and when it changed (for the cross-fade).
     pub(crate) shown_tab: String,
     pub(crate) tab_changed_at: f64,
+    /// Which way the ribbon's groups slide in (1 from the right, -1 from the left).
+    pub(crate) tab_dir: f32,
     /// The versions panel last open, kept while it slides closed.
     pub(crate) last_panel: Option<Panel>,
     /// The Writer Pro side panel last open, kept while it slides closed.
@@ -359,11 +361,8 @@ impl GlassApp {
             Local::Handles => self.glass.prefs.handles = !self.glass.prefs.handles,
             Local::Inspector => self.glass.panel = flip(self.glass.panel, Panel::Inspector),
             Local::Split => {
-                self.glass.panel = if matches!(self.glass.panel, Some(Panel::Reference(_))) {
-                    None
-                } else {
-                    Some(Panel::Reference(Some(project::NoteKind::Character)))
-                }
+                self.glass.panel =
+                    if matches!(self.glass.panel, Some(Panel::Reference(_))) { None } else { Some(Panel::Reference(scriv::RefView::Document(None))) }
             }
             Local::Sections => self.glass.prefs.scrivenings = !self.glass.prefs.scrivenings,
         }

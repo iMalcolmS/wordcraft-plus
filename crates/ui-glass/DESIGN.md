@@ -83,7 +83,20 @@ stronger outline.
   label) stacked three to a column, icon toggles 28 × 28.
 - **File** — a glass menu under the File tab (New, Open, Open Recent, Save, Export, Print, Info,
   Settings), not a full-window takeover. Templates, Print, Info and Settings open the full File view.
-- **Navigation** (View › Navigation Pane) — a glass card on the left: Headings | Pages.
+- **Navigation** (View › Navigation Pane, or click "Page x of y" in the status capsule) — a glass
+  card on the left, laid out like Word's: a row of icon tabs (Pages, Headings, Comments, Search)
+  with a gliding pill and a close button. Pages shows real thumbnails; Comments lists every
+  comment with its anchor (click to go there); Search finds every match as you type and shows it
+  with the text around it.
+- **Ribbon fields** — font and size pickers are one box each: the value and a chevron inside a
+  single rounded field with a quiet hairline border that takes the accent on hover or focus, 4 pt
+  apart. Thin vertical rules separate the size buttons, Change Case, the clear and effect
+  buttons, as in Word's Font group. (This is a change to WordCraft's own `ui-egui` widgets, so
+  the classic interface gets it too.)
+- **Colour menus** — the swatches, Recent Colors, then **Custom Color ▸**: a hue/saturation wheel
+  and a brightness bar open right in the menu, with a swatch, the hex value and Apply. The menu
+  stays open while you use the wheel. More Colors… opens the full Colors dialog, whose Custom tab
+  uses the same wheel.
 - **Canvas** — the pages on the canvas colour.
 - **Versions** — a glass card on the right: Snapshots | History.
 - **Status capsule** — centred at the bottom: goal ring, writing time, page, words, view buttons,
@@ -97,7 +110,9 @@ Everything moves, briefly and quietly; nothing snaps.
 |---|---|
 | Hover on any control | fill fades in/out, 120 ms |
 | Toggled state | accent tint eases in, 180 ms |
-| Tab change | selected pill glides, 240 ms; the new tab's controls fade in and settle 6 pt, 220 ms ease-out |
+| Tab change | selected pill glides (ease-out quart, restarted from where it is), 320 ms; the new tab's controls fade in and slide 18 pt from the side of the tab you came from, 220 ms ease-out |
+| Navigation pane tabs | the pill glides between the icon tabs |
+| Block handle and drop line | glide to the paragraph under the pointer instead of jumping |
 | Ribbon overflow | chevron glides the row, 280 ms; edge fades ease in/out, 150 ms |
 | Document or view switch | the new content fades in, 220 ms ease-out |
 | Switches | the knob slides and the track tints, 180 ms |
@@ -149,7 +164,7 @@ count, words and state.
 
 | Feature | How it works |
 |---|---|
-| Block handles (Writer Pro) | A grip beside the paragraph under the pointer. Drag: the paragraph fades back, a frosted copy trails the pointer, an accent line glides to where it will land, the page scrolls near its edges; drop moves it (`para.moveUp/Down`, undoable). Click: selects the paragraph. Escape cancels. |
+| Block handles (everyone; Appearance › Block handles) | A grip beside the paragraph under the pointer. Drag: the paragraph fades back, a frosted copy trails the pointer, an accent line glides to where it will land, the page scrolls near its edges; drop moves it (`para.moveUp/Down`, undoable). Click: selects the paragraph. Escape cancels. |
 | Reader's Glow | Off / Paragraph / Sentence. Everything but the lit text fades back; the lit band glides between paragraphs and sentences (animated in page coordinates, so scrolling never lags it). |
 | Pulse | A paragraph glows for a moment when its style changes (by any route) or when it lands after a drag. |
 | Rhythm marks | A thin bar in the left margin per paragraph: green, amber when sentences average over 22 words (or 150+ words), red over 30 (or 220+). Hover for the figures. Words of four letters or more repeated within ten words, or three times in a paragraph, get a gradient underline (English and Portuguese stop words ignored). |
@@ -164,8 +179,11 @@ count, words and state.
 - **Editor header** — over the page: ‹ › through the sections visited, the section's name and
   status, ⌃ ⌄ previous/next section, the split and the Inspector.
 - **Inspector** — the section's synopsis (white card), notes (cream card), label and status.
-- **Split** — a reference pane: Manuscript (sections with synopses), Characters, Places or
-  Research (items with two lines of synopsis, the selected one open beneath to edit).
+- **Split** — a reference pane that opens on a **document**: this document's pages, or any other
+  open tab's, rendered at the pane's width (click a page of this document to go there; "Open in
+  Editor" switches to another tab). The header menu also offers Manuscript (sections with
+  synopses), Characters, Places and Research (items with two lines of synopsis, the selected one
+  open beneath to edit).
 - **Quick Reference** — a section in a small floating window to read while writing; ‹ › walk the
   sections; drag it by its title.
 - **Section boxes** — on the page, each heading in a soft box tinted with its label, a dashed rule

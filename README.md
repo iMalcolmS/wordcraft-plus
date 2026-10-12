@@ -56,7 +56,12 @@ It is an independent project and is not affiliated with or endorsed by ArtCraft 
   résumé, report), recent files, and the Writer Pro switch.
 - **Side panels** that slide in, **resize** by dragging their edge (saved, with sensible
   limits).
-- **Navigation pane** with headings and real page thumbnails.
+- **Navigation pane**, as in Word: icon tabs for Pages (real thumbnails), Headings, Comments and
+  Search (every match with the text around it). Click "Page x of y" in the status bar to open it.
+- **Word-style font group**: font and size in single boxes with a chevron, thin rules between
+  the button groups.
+- **Colour menus with a colour wheel**: besides the theme and standard swatches, **Custom
+  Color** opens a hue wheel and brightness bar right in the menu, with the hex value.
 - **Appearance panel**: theme, seven accent colours, four window tones, glass tint, Reduce
   Transparency, interface size, animations, dark page, and every writing aid below.
 
@@ -72,6 +77,8 @@ It is an independent project and is not affiliated with or endorsed by ArtCraft 
   words repeated too close together (English and Portuguese).
 - **Layout guides**: margins, centre line and a baseline grid over the page.
 - **Pulse**: a paragraph glows briefly when its style changes or after it is moved.
+- **Block handles**: a ⠿ handle beside every paragraph (turn off in Appearance). Drag it to move
+  the paragraph; click it for **Turn into** and **Turn into page** (described below).
 
 ### Writer Pro (Scrivener + Notion + Obsidian)
 
@@ -85,11 +92,12 @@ Turned on with one switch. It adds the **Writer** tab and:
 - **Corkboard**: sections as index cards; drag a card to move the whole section in the
   document; click a chip to change its status.
 - **Outliner**: sections as rows with status, word count and an editable synopsis.
-- **Split reference pane**: Manuscript, Characters, Places or Research beside the page.
+- **Split**: another document beside the page (this one's pages or any open tab), or the
+  Manuscript, Characters, Places or Research.
 - **Quick Reference**: any section in a small floating window, to read while writing another.
 - **Section boxes**: headings on the page in boxes tinted with their label, with dashed rules
   between sections.
-- **Blocks, as in Notion**: a ⠿ handle beside every paragraph. Drag it to move the paragraph (a
+- **Blocks, as in Notion** (also in standard mode): a ⠿ handle beside every paragraph. Drag it to move the paragraph (a
   frosted copy follows the pointer, a line shows where it lands). Click it to **Turn into**
   text, a heading, a quote, a list or a to-do, to duplicate, move, select or delete it, or to
   **Turn into page**: the heading and its section move to a new document in its own tab, and a
@@ -114,14 +122,16 @@ so the `.docx` stays a clean Word file.
 | ![Block menu](docs/glass/07-block-menu.png) Block menu: Turn into… | ![Split and Quick Reference](docs/glass/08-split-quick-reference.png) A page link, Quick Reference and the split |
 | ![Typewriter, dark](docs/glass/09-typewriter-dark.png) Typewriter mode, dark | ![Reader's Glow](docs/glass/10-glow-rhythm-thumbnails.png) Reader's Glow, rhythm marks and page thumbnails |
 | ![Tab preview](docs/glass/11-tab-preview.png) Tab preview | ![Appearance](docs/glass/12-appearance.png) Appearance |
+| ![Navigation pane](docs/glass/13-navigation.png) Navigation pane: Pages, Headings, Comments, Search | ![Colour wheel](docs/glass/14-color-wheel.png) Font colour with the colour wheel |
+| ![Split with a document](docs/glass/15-split-document.png) Writer Pro split with the document | |
 
 ## Build and run
 
 You need [Rust](https://rustup.rs) (stable).
 
 ```sh
-git clone https://github.com/iMalcolmS/wordcraft-glass.git
-cd wordcraft-glass
+git clone https://github.com/iMalcolmS/wordcraft-plus.git
+cd wordcraft-plus
 git checkout glass-ui        # if it isn't the default branch
 cargo run --release -p wordcraft-glass
 ```

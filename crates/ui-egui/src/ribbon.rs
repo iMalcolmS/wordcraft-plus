@@ -461,6 +461,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                         app.run("format.font", json!({"name": f}))
                     };
                 }
+                ui.add_space(4.0);
                 let size = st
                     .get("size")
                     .and_then(Value::as_f64)
@@ -476,6 +477,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 ui.add_space(3.0);
                 small(ui, app, "grow", None, "Increase Font Size", "format.growFont", json!({}), false);
                 small(ui, app, "shrink", None, "Decrease Font Size", "format.shrinkFont", json!({}), false);
+                crate::widgets::rule(ui);
                 menu_button(ui, app, "case", None, "Change Case", false, |ui, app| {
                     mi(ui, app, "Sentence case.", "format.changeCase", json!({"mode": "sentence"}));
                     mi(ui, app, "lowercase", "format.changeCase", json!({"mode": "lower"}));
@@ -483,6 +485,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                     mi(ui, app, "Capitalize Each Word", "format.changeCase", json!({"mode": "title"}));
                     mi(ui, app, "tOGGLE cASE", "format.changeCase", json!({"mode": "toggle"}));
                 });
+                crate::widgets::rule(ui);
                 small(ui, app, "clear", None, "Clear All Formatting", "format.clear", json!({}), false);
                 small(ui, app, "phonetic", None, "Phonetic Guide", "format.phonetic", json!({}), false);
             });
@@ -509,7 +512,7 @@ fn home(app: &mut WordApp, ui: &mut Ui) {
                 small(ui, app, "superscript", None, "Superscript", "format.superscript", json!({}), flag("superscript"));
                 small(ui, app, "charborder", None, "Character Border", "format.border", json!({}), flag("border"));
                 small(ui, app, "enclose", None, "Enclose Characters", "format.enclose", json!({}), false);
-                ui.add_space(4.0);
+                crate::widgets::rule(ui);
                 menu_button(ui, app, "effects", None, "Text Effects and Typography", false, |ui, app| {
                     let theme = app.session.doc.settings.theme_colors.clone();
                     crate::wordart_menus::style_gallery(ui, app, "format.textEffects");

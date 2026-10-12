@@ -273,6 +273,14 @@ fn classic(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
     let strip = 30.0;
     let now = ui.input(|i| i.time);
     if g.glass.shown_tab != g.app.ui.tab {
+        // The new tab's groups slide in from the side the tab is on.
+        let order = tabs(&g.app, g.glass.prefs.pro);
+        let from = order.iter().position(|n| *n == g.glass.shown_tab);
+        let to = order.iter().position(|n| *n == g.app.ui.tab);
+        g.glass.tab_dir = match (from, to) {
+            (Some(a), Some(b)) if b < a => -1.0,
+            _ => 1.0,
+        };
         g.glass.shown_tab = g.app.ui.tab.clone();
         g.glass.tab_changed_at = now;
     }
@@ -288,10 +296,10 @@ fn classic(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
         .frame(egui::Frame::NONE.fill(t.canvas).inner_margin(egui::Margin { left: 14, right: 14, top: 0, bottom: 10 }))
         .show_collapsible(ui, &mut open, |ui| {
             let full = ui.max_rect();
-            let card = Rect::from_min_size(full.min, vec2(full.width(), ribbon_h + 10.0));
+            let card = Rect::from_min_size(full.min, vec2(full.width(), ribbon_h + 12.0));
             ui.painter().add(crate::tokens::glass_shape(card, radius::RIBBON, t));
             let _ = ui.allocate_exact_size(card.size(), Sense::hover());
-            let inner = card.shrink2(vec2(12.0, 4.0));
+            let inner = card.shrink2(vec2(16.0, 5.0));
             if ui.rect_contains_pointer(inner) {
                 ui.ctx().input_mut(|i| {
                     if i.smooth_scroll_delta.x.abs() < 0.5 && i.smooth_scroll_delta.y.abs() > 0.0 && !i.modifiers.command {
@@ -300,7 +308,8 @@ fn classic(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
                     }
                 });
             }
-            let host = Rect::from_min_max(pos2(inner.min.x, inner.min.y - strip - 3.0 + 4.0 * (1.0 - ease)), inner.max);
+            let slide = g.glass.tab_dir * 18.0 * (1.0 - ease);
+            let host = Rect::from_min_max(pos2(inner.min.x + slide, inner.min.y - strip - 3.0), pos2(inner.max.x + slide, inner.max.y));
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(host).layout(egui::Layout::top_down(egui::Align::Min)));
             child.set_clip_rect(inner.intersect(ui.clip_rect()));
             child.multiply_opacity(ease);

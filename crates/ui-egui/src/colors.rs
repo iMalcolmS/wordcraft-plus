@@ -272,6 +272,136 @@ struct FieldRequest(Id, Option<Rgb>);
 #[derive(Clone)]
 struct FieldResult(String);
 
+/// `Rgb` from hue (degrees), saturation and value (0–1).
+pub fn from_hsv(h: f32, s: f32, v: f32) -> Rgb {
+    let h = if h.is_finite() { h.rem_euclid(360.0) } else { 0.0 };
+    let (s, v) = (s.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+    let c = v * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = v - c;
+    let (r, g, b) = match (h / 60.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let f = |u: f32| ((u + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    Rgb(f(r), f(g), f(b))
+}
+
+/// Hue (degrees), saturation and value (0–1) of `c`.
+pub fn to_hsv(c: Rgb) -> (f32, f32, f32) {
+    let (r, g, b) = (f32::from(c.0) / 255.0, f32::from(c.1) / 255.0, f32::from(c.2) / 255.0);
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let d = max - min;
+    let h = if d <= 0.0 {
+        0.0
+    } else if max == r {
+        60.0 * (((g - b) / d).rem_euclid(6.0))
+    } else if max == g {
+        60.0 * ((b - r) / d + 2.0)
+    } else {
+        60.0 * ((r - g) / d + 4.0)
+    };
+    (h, if max <= 0.0 { 0.0 } else { d / max }, max)
+}
+
+/// A colour wheel: hue around, saturation outwards, and a brightness bar beside it. Edits
+/// `hsv` in place; true when it changed this frame.
+pub fn wheel(ui: &mut Ui, size: f32, hsv: &mut (f32, f32, f32)) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        let (rect, resp) = ui.allocate_exact_size(vec2(size, size), Sense::click_and_drag());
+        let c = rect.center();
+        let radius = size / 2.0 - 2.0;
+        // The disc: rings of wedges, each vertex coloured, at the current brightness.
+        let mut mesh = egui::Mesh::default();
+        let (rings, segs) = (8u32, 72u32);
+        mesh.colored_vertex(c, c32(from_hsv(0.0, 0.0, hsv.2)));
+        for ring in 1..=rings {
+            let sat = ring as f32 / rings as f32;
+            for k in 0..segs {
+                let a = k as f32 / segs as f32 * std::f32::consts::TAU;
+                let p = c + vec2(a.cos(), -a.sin()) * radius * sat;
+                mesh.colored_vertex(p, c32(from_hsv(a.to_degrees(), sat, hsv.2)));
+            }
+        }
+        let at = |ring: u32, k: u32| 1 + (ring - 1) * segs + (k % segs);
+        for k in 0..segs {
+            mesh.add_triangle(0, at(1, k), at(1, k + 1));
+        }
+        for ring in 1..rings {
+            for k in 0..segs {
+                mesh.add_triangle(at(ring, k), at(ring + 1, k), at(ring + 1, k + 1));
+                mesh.add_triangle(at(ring, k), at(ring + 1, k + 1), at(ring, k + 1));
+            }
+        }
+        ui.painter().add(egui::Shape::mesh(mesh));
+        ui.painter().circle_stroke(c, radius, Stroke::new(1.0, t.border_strong));
+        if let Some(p) = resp.interact_pointer_pos().filter(|_| resp.clicked() || resp.dragged()) {
+            let v = p - c;
+            hsv.0 = (-v.y).atan2(v.x).to_degrees().rem_euclid(360.0);
+            hsv.1 = (v.length() / radius).clamp(0.0, 1.0);
+            changed = true;
+        }
+        let a = hsv.0.to_radians();
+        let m = c + vec2(a.cos(), -a.sin()) * radius * hsv.1;
+        ui.painter().circle_filled(m, 6.0, c32(from_hsv(hsv.0, hsv.1, hsv.2)));
+        ui.painter().circle_stroke(m, 6.0, Stroke::new(2.0, Color32::WHITE));
+        ui.painter().circle_stroke(m, 7.5, Stroke::new(1.0, Color32::from_black_alpha(90)));
+        ui.add_space(10.0);
+        // Brightness: bright at the top.
+        let (bar, bresp) = ui.allocate_exact_size(vec2(14.0, size), Sense::click_and_drag());
+        let mut mesh = egui::Mesh::default();
+        let steps = 12u32;
+        for k in 0..=steps {
+            let v = k as f32 / steps as f32;
+            let col = c32(from_hsv(hsv.0, hsv.1, 1.0 - v));
+            let y = bar.min.y + v * bar.height();
+            mesh.colored_vertex(pos2(bar.min.x, y), col);
+            mesh.colored_vertex(pos2(bar.max.x, y), col);
+        }
+        for k in 0..steps {
+            let a = k * 2;
+            mesh.add_triangle(a, a + 1, a + 2);
+            mesh.add_triangle(a + 1, a + 3, a + 2);
+        }
+        ui.painter().add(egui::Shape::mesh(mesh));
+        ui.painter().rect_stroke(bar, 7.0, Stroke::new(1.0, t.border_strong), egui::StrokeKind::Outside);
+        if let Some(p) = bresp.interact_pointer_pos().filter(|_| bresp.clicked() || bresp.dragged()) {
+            hsv.2 = 1.0 - ((p.y - bar.min.y) / bar.height()).clamp(0.0, 1.0);
+            changed = true;
+        }
+        let y = bar.min.y + (1.0 - hsv.2) * bar.height();
+        let knob = Rect::from_center_size(pos2(bar.center().x, y), vec2(18.0, 6.0));
+        ui.painter().rect_filled(knob, 3.0, Color32::WHITE);
+        ui.painter().rect_stroke(knob, 3.0, Stroke::new(1.0, Color32::from_black_alpha(110)), egui::StrokeKind::Outside);
+    });
+    changed
+}
+
+/// The colour being mixed on a drop-down's wheel, between frames.
+fn wheel_id() -> Id {
+    Id::new("wordcraft.colors.wheel")
+}
+
+/// Menus close on any click, even inside them. A click in the palette's Custom Color part (the
+/// row, the wheel, the brightness bar) must leave the menu open, so the palette notes the pass it
+/// happened in and the menu's owner reopens it ([`keep_open`]).
+fn keep_open_id() -> Id {
+    wheel_id().with("keep_open")
+}
+
+/// True when a click inside a palette this pass should leave its menu open.
+pub fn keep_open(ctx: &egui::Context) -> bool {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| d.remove_temp::<u64>(keep_open_id())) == Some(pass)
+}
+
 /// The drop-down's body: theme and standard colours, Recent Colors, More Colors….
 pub fn palette(ui: &mut Ui, theme: &[Rgb]) -> Option<Pick> {
     let mut picked = crate::widgets::color_grid(ui, theme).map(Pick::Color);
@@ -288,6 +418,57 @@ pub fn palette(ui: &mut Ui, theme: &[Rgb]) -> Option<Pick> {
                 }
             }
         });
+    }
+    // Any colour, right here: a wheel opens under the swatches.
+    ui.add_space(4.0);
+    let open_id = wheel_id().with("open");
+    let open: bool = ui.data(|d| d.get_temp(open_id)).unwrap_or(false);
+    let t = Tokens::get(ui.ctx());
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width().max(180.0), 22.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r, 4.0, t.hover);
+    }
+    ui.painter().text(
+        pos2(r.min.x + 6.0, r.center().y),
+        egui::Align2::LEFT_CENTER,
+        if open { "▾" } else { "▸" },
+        egui::FontId::proportional(11.0),
+        t.text_dim,
+    );
+    ui.painter().text(
+        pos2(r.min.x + 20.0, r.center().y),
+        egui::Align2::LEFT_CENTER,
+        tl!("Custom Color"),
+        egui::TextStyle::Button.resolve(ui.style()),
+        t.text,
+    );
+    if resp.clicked() {
+        ui.data_mut(|d| d.insert_temp(open_id, !open));
+    }
+    let custom_top = r.min.y;
+    if open {
+        let mut hsv: (f32, f32, f32) = ui.data(|d| d.get_temp(wheel_id())).unwrap_or((210.0, 0.8, 0.85));
+        ui.add_space(4.0);
+        wheel(ui, 150.0, &mut hsv);
+        ui.data_mut(|d| d.insert_temp(wheel_id(), hsv));
+        let c = from_hsv(hsv.0, hsv.1, hsv.2);
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let (sw, _) = ui.allocate_exact_size(vec2(36.0, 22.0), Sense::hover());
+            ui.painter().rect_filled(sw, 5.0, c32(c));
+            ui.painter().rect_stroke(sw, 5.0, Stroke::new(1.0, t.border_strong), egui::StrokeKind::Inside);
+            ui.label(egui::RichText::new(format!("#{}", c.hex())).monospace());
+            let apply = egui::Button::new(egui::RichText::new(tl!("Apply")).color(Color32::WHITE)).fill(t.accent).corner_radius(5.0);
+            if ui.add(apply).clicked() {
+                picked = Some(Pick::Color(c.hex()));
+            }
+        });
+    }
+    let custom = Rect::from_min_max(pos2(r.min.x, custom_top), pos2(r.max.x, ui.min_rect().max.y));
+    let clicked_custom = ui.input(|i| i.pointer.any_click() && i.pointer.interact_pos().is_some_and(|p| custom.contains(p)));
+    if clicked_custom && picked.is_none() {
+        let pass = ui.ctx().cumulative_pass_nr();
+        ui.data_mut(|d| d.insert_temp(keep_open_id(), pass));
     }
     ui.add_space(2.0);
     ui.separator();
@@ -609,61 +790,16 @@ fn custom(ui: &mut Ui, d: &mut ColorsDialog) {
     let t = Tokens::get(ui.ctx());
     ui.label(tl!("Colors:"));
     ui.horizontal(|ui| {
-        // Hue across, saturation up; drawn at the middle lightness.
-        let (field, fresp) = ui.allocate_exact_size(vec2(280.0, 170.0), Sense::click_and_drag());
-        let mut mesh = egui::Mesh::default();
-        let (cols, rows) = (36u32, 6u32);
-        for j in 0..=rows {
-            for i in 0..=cols {
-                let (u, v) = (i as f32 / cols as f32, j as f32 / rows as f32);
-                let p = pos2(field.min.x + u * field.width(), field.min.y + v * field.height());
-                mesh.colored_vertex(p, c32(from_hsl(u * 360.0, 1.0 - v, 0.5)));
-            }
+        // A colour wheel (hue around, saturation outwards) with its brightness bar.
+        let mut hsv = to_hsv(d.color);
+        if hsv.1 <= 0.0 {
+            hsv.0 = d.hsl.0;
         }
-        for j in 0..rows {
-            for i in 0..cols {
-                let a = j * (cols + 1) + i;
-                mesh.add_triangle(a, a + 1, a + cols + 1);
-                mesh.add_triangle(a + 1, a + cols + 2, a + cols + 1);
-            }
+        if wheel(ui, 180.0, &mut hsv) {
+            d.set_rgb(from_hsv(hsv.0, hsv.1, hsv.2));
+            d.hsl.0 = hsv.0;
         }
-        ui.painter().add(egui::Shape::mesh(mesh));
-        ui.painter().rect_stroke(field, 0.0, Stroke::new(1.0, t.border_strong), egui::StrokeKind::Outside);
-        if let Some(p) = fresp.interact_pointer_pos().filter(|_| fresp.clicked() || fresp.dragged()) {
-            let u = ((p.x - field.min.x) / field.width()).clamp(0.0, 1.0);
-            let v = ((p.y - field.min.y) / field.height()).clamp(0.0, 1.0);
-            let l = if d.hsl.2 <= 0.0 || d.hsl.2 >= 1.0 { 0.5 } else { d.hsl.2 };
-            d.set_hsl(u * 359.9, 1.0 - v, l);
-        }
-        let m = pos2(field.min.x + d.hsl.0 / 360.0 * field.width(), field.min.y + (1.0 - d.hsl.1) * field.height());
-        ui.painter().circle_stroke(m, 5.0, Stroke::new(2.0, Color32::BLACK));
-        ui.painter().circle_stroke(m, 4.0, Stroke::new(1.0, Color32::WHITE));
-
-        // Lightness: white at the top, black at the bottom, through the picked hue and saturation.
-        let (bar, bresp) = ui.allocate_exact_size(vec2(16.0, 170.0), Sense::click_and_drag());
-        let mut mesh = egui::Mesh::default();
-        let steps = 16u32;
-        for k in 0..=steps {
-            let v = k as f32 / steps as f32;
-            let col = c32(from_hsl(d.hsl.0, d.hsl.1, 1.0 - v));
-            let y = bar.min.y + v * bar.height();
-            mesh.colored_vertex(pos2(bar.min.x, y), col);
-            mesh.colored_vertex(pos2(bar.max.x, y), col);
-        }
-        for k in 0..steps {
-            let a = k * 2;
-            mesh.add_triangle(a, a + 1, a + 2);
-            mesh.add_triangle(a + 1, a + 3, a + 2);
-        }
-        ui.painter().add(egui::Shape::mesh(mesh));
-        ui.painter().rect_stroke(bar, 0.0, Stroke::new(1.0, t.border_strong), egui::StrokeKind::Outside);
-        if let Some(p) = bresp.interact_pointer_pos().filter(|_| bresp.clicked() || bresp.dragged()) {
-            let v = ((p.y - bar.min.y) / bar.height()).clamp(0.0, 1.0);
-            d.set_hsl(d.hsl.0, d.hsl.1, 1.0 - v);
-        }
-        let y = bar.min.y + (1.0 - d.hsl.2) * bar.height();
-        let tip = pos2(bar.max.x + 2.0, y);
-        ui.painter().add(egui::Shape::convex_polygon(vec![tip, tip + vec2(7.0, -5.0), tip + vec2(7.0, 5.0)], t.text, Stroke::NONE));
+        let _ = &t;
         ui.add_space(8.0);
     });
     ui.add_space(8.0);
@@ -733,6 +869,17 @@ fn custom(ui: &mut Ui, d: &mut ColorsDialog) {
 mod tests {
     use super::*;
     use wordcraft_engine::Session;
+
+    #[test]
+    fn hsv_round_trips_and_survives_junk() {
+        for c in [Rgb(0, 0, 0), Rgb(255, 255, 255), Rgb(0x7A, 0x3E, 0xC8), Rgb(255, 0, 0), Rgb(12, 200, 99), Rgb(1, 2, 254)] {
+            let (h, s, v) = to_hsv(c);
+            assert_eq!(from_hsv(h, s, v), c);
+        }
+        assert_eq!(from_hsv(f32::NAN, 2.0, -1.0), Rgb(0, 0, 0));
+        assert_eq!(from_hsv(720.0, 1.0, 1.0), Rgb(255, 0, 0));
+        let _ = from_hsv(f32::INFINITY, f32::NAN, f32::NAN);
+    }
 
     #[test]
     fn parse_accepts_hex_short_hex_and_rgb_triples() {

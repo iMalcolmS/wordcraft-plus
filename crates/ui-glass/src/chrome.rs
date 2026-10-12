@@ -172,8 +172,8 @@ fn tab_strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, space: Rect) {
     };
     if let Some(sel) = selected.and_then(|i| rects.get(i)) {
         let ctx = ui.ctx().clone();
-        let px = ctx.animate_value_with_time(egui::Id::new("glass_tab_pill_x"), sel.min.x - track.min.x, 0.24);
-        let pw = ctx.animate_value_with_time(egui::Id::new("glass_tab_pill_w"), sel.width(), 0.24);
+        let px = crate::tokens::glide(&ctx, egui::Id::new("glass_tab_pill_x"), sel.min.x - track.min.x, 0.32);
+        let pw = crate::tokens::glide(&ctx, egui::Id::new("glass_tab_pill_w"), sel.width(), 0.32);
         let pill = Rect::from_min_size(pos2(track.min.x + px, sel.min.y), vec2(pw, sel.height()));
         crate::tokens::paint_pill(ui.painter(), pill, t);
     }
@@ -451,8 +451,14 @@ pub fn status_bar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 divider(ui, t);
                 let l = g.app.session.layout();
                 let page = l.caret_on(&g.app.session.sel.focus, g.app.session.page_hint).map(|c| c.page + 1).unwrap_or(1);
-                if status_text(ui, t, &format!("Page {page} of {}", l.pages.len())).on_hover_text("Go To").clicked() {
-                    w::run(ui, &mut g.app, "ui.dialog", json!({"name": "goto"}));
+                // As in Word: the page count opens the Navigation pane on its page thumbnails.
+                if status_text(ui, t, &format!("Page {page} of {}", l.pages.len())).on_hover_text("Show pages (double-click: Go To)").clicked() {
+                    let open = g.app.session.view.nav_pane && g.app.ui.nav_tab == "pages";
+                    g.app.ui.nav_tab = "pages".into();
+                    if g.glass.prefs.pro && g.glass.prefs.binder {
+                        g.glass.prefs.binder = false;
+                    }
+                    w::run(ui, &mut g.app, "view.navigationPane", json!({"value": !open}));
                 }
                 let words = g.app.cached_word_count();
                 if status_text(ui, t, &format!("{} words", group_digits(words as i64))).on_hover_text("Word Count").clicked() {

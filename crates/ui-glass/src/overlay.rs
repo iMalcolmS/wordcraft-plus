@@ -231,7 +231,7 @@ pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     }
     page_links(g, ui, &painter, &layout, &blocks, t);
     pulse(g, ui, &painter, &layout, t);
-    if g.glass.prefs.pro && g.glass.prefs.handles {
+    if g.glass.prefs.handles {
         handles(g, ui, &painter, &layout, &pages, clip, t);
     } else {
         g.glass.overlay.drag = None;
@@ -612,7 +612,7 @@ fn handles(g: &mut GlassApp, ui: &mut Ui, painter: &egui::Painter, layout: &DocL
             let target = drop_target(g, layout, &blocks, p);
             drag.target = target.as_ref().map(|(b, _)| *b);
             if let Some((_, line)) = target {
-                let y = ctx.animate_value_with_time(egui::Id::new("glass_drop_y"), line.center().y, 0.08);
+                let y = crate::tokens::glide(&ctx, egui::Id::new("glass_drop_y"), line.center().y, 0.14);
                 let line = Rect::from_center_size(pos2(line.center().x, y), line.size());
                 painter.rect_filled(line, 1.0, t.accent);
                 painter.circle_stroke(pos2(line.min.x - 3.0, y), 3.5, egui::Stroke::new(1.5, t.accent));
@@ -666,7 +666,7 @@ fn handles(g: &mut GlassApp, ui: &mut Ui, painter: &egui::Painter, layout: &DocL
     }
     let shown = ctx.animate_bool_with_time(egui::Id::new("glass_handle_shown"), hovered.is_some(), 0.14);
     let Some((block, at)) = hovered else { return };
-    let y = ctx.animate_value_with_time(egui::Id::new("glass_handle_y"), at.min.y, 0.09);
+    let y = crate::tokens::glide(&ctx, egui::Id::new("glass_handle_y"), at.min.y, 0.16);
     let r = Rect::from_min_size(pos2(at.min.x, y), at.size());
     let resp = egui::Area::new(egui::Id::new("glass_block_handle"))
         .order(egui::Order::Middle)
@@ -847,7 +847,7 @@ pub fn block_menu(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
                         pick = Some(id);
                     }
                 }
-                if g.glass.prefs.pro && item(ui, "↗", if heading { "Turn into page (with its section)" } else { "Turn into page" }) {
+                if item(ui, "↗", if heading { "Turn into page (with its section)" } else { "Turn into page" }) {
                     pick = Some("page");
                 }
                 ui.add_space(4.0);

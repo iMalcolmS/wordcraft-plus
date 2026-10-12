@@ -197,10 +197,15 @@ pub fn split(
     if resp.clicked() {
         let _ = app.run(id, params);
     }
-    egui::Popup::menu(&aresp).show(|ui| {
+    let popup = egui::Popup::menu(&aresp);
+    let pid = popup.get_id();
+    popup.show(|ui| {
         ui.set_min_width(180.0);
         menu(ui, app);
     });
+    if crate::colors::keep_open(ui.ctx()) {
+        egui::Popup::open_id(ui.ctx(), pid);
+    }
 }
 
 /// A button that only opens a menu (icon + label + ▾).
@@ -247,10 +252,15 @@ pub fn menu_button(
         resp
     };
     let resp = resp.on_hover_text(tip);
-    egui::Popup::menu(&resp).show(|ui| {
+    let popup = egui::Popup::menu(&resp);
+    let pid = popup.get_id();
+    popup.show(|ui| {
         ui.set_min_width(200.0);
         menu(ui, app);
     });
+    if crate::colors::keep_open(ui.ctx()) {
+        egui::Popup::open_id(ui.ctx(), pid);
+    }
 }
 
 /// A ribbon group: content, a centred label below and a divider on the right.
@@ -516,7 +526,14 @@ fn combo_impl(
                 }
             });
         }
-        let te = egui::TextEdit::singleline(&mut text).id(te_id).desired_width(width - 16.0).font(regular(12.0)).margin(vec2(4.0, 3.0));
+        // One box for the value and its chevron, as Word and macOS draw a pop-up field: the
+        // field's frame is drawn behind both once their size is known.
+        let bg = ui.painter().add(egui::Shape::Noop);
+        let te = egui::TextEdit::singleline(&mut text)
+            .id(te_id)
+            .desired_width(width - 22.0)
+            .font(regular(12.0))
+            .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(7, 3)));
         let resp = ui.add(te);
         keytip_badge(ui, resp.rect, "combo", id);
         focused = resp.has_focus();
@@ -562,9 +579,20 @@ fn combo_impl(
         } else if enter {
             out = Some(text.clone());
         }
-        let (ar, aresp) = ui.allocate_exact_size(vec2(16.0, resp.rect.height()), Sense::click());
-        ui.painter().rect(ar, 0.0, if aresp.hovered() { t.hover } else { t.input }, Stroke::new(1.0, t.input_border), egui::StrokeKind::Inside);
-        icons::paint(ui.painter(), Rect::from_center_size(ar.center(), vec2(10.0, 10.0)), "dropdown", t.icon, t.accent);
+        let (ar, aresp) = ui.allocate_exact_size(vec2(18.0, resp.rect.height()), Sense::click());
+        let field = resp.rect.union(ar);
+        let radius = egui::CornerRadius::same(4);
+        // A quiet hairline at rest (the field reads as part of the row, not a bubble); the
+        // accent shows where the pointer or the keyboard is.
+        let border =
+            if focused || aresp.hovered() || resp.hovered() { t.accent.gamma_multiply(0.7) } else { t.input_border.lerp_to_gamma(t.input, 0.45) };
+        ui.painter().set(bg, egui::Shape::rect_filled(field, radius, t.input));
+        ui.painter().rect_stroke(field, radius, Stroke::new(1.0, border), egui::StrokeKind::Inside);
+        if aresp.hovered() {
+            let r = egui::CornerRadius { nw: 0, sw: 0, ne: 4, se: 4 };
+            ui.painter().rect_filled(ar.shrink(1.0), r, t.hover);
+        }
+        icons::paint(ui.painter(), Rect::from_center_size(ar.center(), vec2(9.0, 9.0)), "chevronDown", t.icon, t.accent);
         // The list drops from the box's left edge, as in Word, not from the arrow (#535).
         egui::Popup::menu(&aresp).anchor(resp.rect.union(ar)).show(|ui| {
             if let Some(v) = combo_list(ui, width, current, items, preview) {
@@ -618,6 +646,14 @@ fn combo_impl(
         }
     });
     out
+}
+
+/// A thin vertical rule between related controls in a ribbon row, as Word separates the font
+/// boxes from the size buttons and the case and effect menus.
+pub fn rule(ui: &mut Ui) {
+    let t = Tokens::get(ui.ctx());
+    let (r, _) = ui.allocate_exact_size(vec2(9.0, 20.0), Sense::hover());
+    ui.painter().vline(r.center().x, (r.min.y + 2.0)..=(r.max.y - 2.0), Stroke::new(1.0, t.border));
 }
 
 /// Height of a row drawn by a combo's preview closure (`Previews::font_preview_fn`'s entries).
