@@ -7,6 +7,8 @@
 //! `{"glass": "snapshots" | "history" | "goals" | "typewriter"}` toggles a feature,
 //! `{"tab": "Insert"}` picks a ribbon tab, `{"words": n}` sets today's words written and
 //! `{"snapshot": "name"}` takes a snapshot and `{"select": i}` selects version `i`;
+//! `{"chooser": "Databases"}` opens Choose a Template (on a category; `"select"` selects one),
+//! `{"dbview": i}` shows a database's view `i` and `{"peek": i}` opens its record `i`;
 //! `{"pro": true}` turns Writer Pro on, `{"home": true}` shows Home, `{"template": "letter"}`
 //! opens a template in a tab and `{"run": "text.insert", "params": {…}}` runs a command;
 //! `{"prefs": {"glow": "Sentence"}}` merges Glass preferences, and `{"pointer": [x, y]}` moves
@@ -133,7 +135,30 @@ fn main() {
             harness.state_mut().set_view(wordcraft_ui_glass::View::Home);
             step_n(&mut harness, 30);
         } else if let Some(kind) = l.get("template").and_then(|v| v.as_str()) {
-            harness.state_mut().new_from_template(kind);
+            match wordcraft_ui_glass::templates::find(kind) {
+                Some(t) => harness.state_mut().create_from(&wordcraft_ui_glass::chooser::Pick::Builtin(t.id)),
+                None => harness.state_mut().new_from_template(kind),
+            }
+            step_n(&mut harness, 4);
+        } else if let Some(c) = l.get("chooser") {
+            let cat = c.as_str().and_then(|n| wordcraft_ui_glass::templates::Category::ALL.into_iter().find(|x| x.name() == n));
+            harness.state_mut().choose_template(cat);
+            if let Some(sel) = l.get("select").and_then(|v| v.as_str()).and_then(wordcraft_ui_glass::templates::find) {
+                harness.state_mut().glass.chooser.selected = Some(wordcraft_ui_glass::chooser::Pick::Builtin(sel.id));
+            }
+            // Thumbnails render a couple per frame.
+            step_n(&mut harness, 60);
+        } else if let Some(v) = l.get("dbview").and_then(|v| v.as_u64()) {
+            if let Some(d) = harness.state_mut().active_db_mut() {
+                d.current = v as usize;
+            }
+            step_n(&mut harness, 6);
+        } else if let Some(i) = l.get("peek").and_then(|v| v.as_u64()) {
+            let id = harness.state_mut().active_db().and_then(|d| d.rows.get(i as usize)).map(|r| r.id);
+            harness.state_mut().glass.dbui.peek = id;
+            step_n(&mut harness, 6);
+        } else if l.get("format").is_some() {
+            harness.state_mut().glass.format_open = true;
             step_n(&mut harness, 4);
         } else if let Some(id) = l.get("run").and_then(|v| v.as_str()) {
             let p = l.get("params").cloned().unwrap_or_else(|| serde_json::json!({}));

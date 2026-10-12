@@ -84,6 +84,7 @@ impl eframe::App for App {
         self.3.show(frame);
     }
     fn on_exit(&mut self) {
+        self.0.save_databases(true);
         save_prefs(&self.0);
         if let Some(key_file) = &self.2 {
             key_file.remove();
@@ -292,6 +293,11 @@ fn main() -> eframe::Result {
             }
             let mut glass = GlassApp::new(app);
             load_prefs(&mut glass);
+            // Databases and their pages live in Documents/WordCraft (not when running without
+            // preferences, as tests and screenshots do).
+            if prefs_enabled() {
+                glass.set_workspace(wordcraft_ui_glass::workspace::default_workspace());
+            }
             glass.app.ui.window = restored;
             // Each file opens in its own tab.
             for f in files {

@@ -72,8 +72,22 @@ pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                             }
                         });
                         let _ = r;
-                        let r = button_capsule(ui, t, 4, h - 6.0, |ui| {
+                        let r = button_capsule(ui, t, 5, h - 6.0, |ui| {
                             let s = h - 6.0;
+                            let fmt = g.glass.format_open;
+                            if w::icon_capsule(
+                                ui,
+                                t,
+                                "shapes",
+                                "Format: arrange, style and add text boxes, shapes and pictures (page layout)",
+                                s,
+                                fmt,
+                                true,
+                            )
+                            .clicked()
+                            {
+                                crate::format::toggle(g);
+                            }
                             let tw = g.glass.prefs.typewriter;
                             if w::icon_capsule(ui, t, "focus", "Typewriter mode: fades everything but the lines you're writing", s, tw, true)
                                 .clicked()

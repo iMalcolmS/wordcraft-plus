@@ -10,8 +10,8 @@ use crate::goals::minutes_text;
 use crate::tokens::{Tokens, glass_shape, paint_state, radius};
 use crate::widgets as w;
 
-const TEMPLATES: [(&str, &str); 5] =
-    [("Blank", "blank"), ("Studio Handbook", "sample"), ("Letter", "letter"), ("Résumé", "resume"), ("Report", "report")];
+/// Templates shown on Home (the rest are in Choose a Template).
+const FEATURED: [&str; 5] = ["essay", "research-paper", "event-flyer", "db-reading", "db-assignments"];
 
 fn greeting() -> &'static str {
     let hour = wordcraft_engine::cmd::now_iso().get(11..13).and_then(|h| h.parse::<u32>().ok()).unwrap_or(9);
@@ -41,39 +41,28 @@ fn section_title(ui: &mut Ui, t: &Tokens, text: &str) {
     ui.add_space(10.0);
 }
 
-/// A paper tile: a little page (blank, or with lines suggesting text) and its name.
-fn template_tile(ui: &mut Ui, t: &Tokens, label: &str, kind: &str) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(vec2(132.0, 196.0), Sense::click());
-    let page = Rect::from_min_size(r.min, vec2(132.0, 170.0));
+/// A pillar card: what you can make (a document, a database, a page layout).
+fn pillar(ui: &mut Ui, t: &Tokens, width: f32, icon: &str, title: &str, text: &str) -> (egui::Response, egui::Response) {
+    let (r, resp) = ui.allocate_exact_size(vec2(width, 132.0), Sense::click());
     let lift = ui.ctx().animate_bool_with_time(resp.id.with("lift"), resp.hovered(), 0.15);
-    let page = page.translate(vec2(0.0, -3.0 * lift));
-    let shadow = egui::epaint::Shadow { offset: [0, (4.0 + 6.0 * lift) as i8], blur: (14.0 + 12.0 * lift) as u8, spread: 0, color: t.shadow };
-    ui.painter().add(shadow.as_shape(page, egui::CornerRadius::same(8)));
-    ui.painter().rect_filled(page, 8.0, egui::Color32::WHITE);
-    let ink = egui::Color32::from_gray(205);
-    let x0 = page.min.x + 16.0;
-    match kind {
-        "blank" => {
-            let c = page.center();
-            let st = egui::Stroke::new(1.6, t.accent);
-            ui.painter().line_segment([pos2(c.x - 9.0, c.y), pos2(c.x + 9.0, c.y)], st);
-            ui.painter().line_segment([pos2(c.x, c.y - 9.0), pos2(c.x, c.y + 9.0)], st);
-        }
-        _ => {
-            let title_w = if kind == "letter" { 46.0 } else { 70.0 };
-            ui.painter().rect_filled(Rect::from_min_size(pos2(x0, page.min.y + 20.0), vec2(title_w, 6.0)), 2.0, egui::Color32::from_gray(90));
-            for k in 0..9 {
-                let y = page.min.y + 40.0 + k as f32 * 12.0;
-                let w = if k % 4 == 3 { 60.0 } else { 100.0 };
-                ui.painter().rect_filled(Rect::from_min_size(pos2(x0, y), vec2(w, 3.0)), 1.5, ink);
-            }
-        }
-    }
+    let card = r.translate(vec2(0.0, -2.0 * lift));
+    ui.painter().add(glass_shape(card, radius::PANEL, t));
     if lift > 0.0 {
-        ui.painter().rect_stroke(page, 8.0, egui::Stroke::new(2.0, t.accent.gamma_multiply(lift)), egui::StrokeKind::Outside);
+        ui.painter().rect_stroke(card, radius::PANEL, egui::Stroke::new(1.5, t.accent.gamma_multiply(lift)), egui::StrokeKind::Inside);
     }
-    ui.painter().text(pos2(r.center().x, r.max.y - 10.0), Align2::CENTER_CENTER, label, medium(12.5), t.text);
-    resp
+    let badge = Rect::from_min_size(card.min + vec2(20.0, 20.0), vec2(40.0, 40.0));
+    ui.painter().rect_filled(badge, 12.0, t.accent_soft);
+    crate::glyphs::paint(ui.painter(), badge.shrink(9.0), icon, t.accent);
+    ui.painter().text(pos2(badge.max.x + 14.0, badge.center().y - 8.0), Align2::LEFT_CENTER, title, semibold(16.0), t.text);
+    ui.painter().text(pos2(badge.max.x + 14.0, badge.center().y + 11.0), Align2::LEFT_CENTER, "New, blank", regular(11.5), t.text_dim);
+    let galley = ui.painter().layout(text.to_string(), regular(12.5), t.text_dim, card.width() - 40.0);
+    ui.painter().galley(pos2(card.min.x + 20.0, badge.max.y + 12.0), galley, t.text_dim);
+    // "Templates…" in the corner.
+    let link = Rect::from_min_size(pos2(card.max.x - 100.0, card.min.y + 22.0), vec2(84.0, 26.0));
+    let lresp = ui.interact(link, resp.id.with("templates"), Sense::click());
+    paint_state(ui, link, radius::CAPSULE, &lresp, false, t);
+    ui.painter().text(link.center(), Align2::CENTER_CENTER, "Templates", medium(11.5), t.accent);
+    (resp, lresp)
 }
 
 pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
@@ -147,16 +136,137 @@ pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                     });
                 });
 
-                // New.
+                // New: the three kinds of thing to make.
                 section_title(ui, t, "New");
+                let gap = 16.0;
+                let third = ((width - 2.0 * gap) / 3.0).max(180.0);
                 ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = vec2(22.0, 18.0);
-                    for (label, kind) in TEMPLATES {
-                        if template_tile(ui, t, label, kind).clicked() {
-                            g.new_from_template(kind);
-                        }
+                    ui.spacing_mut().item_spacing = vec2(gap, gap);
+                    let (doc, doc_t) = pillar(
+                        ui,
+                        t,
+                        third,
+                        "doc",
+                        "Document",
+                        "Write like in Word: styles, references, track changes. Writer Pro adds the Binder, Corkboard and notes.",
+                    );
+                    let (db, db_t) = pillar(
+                        ui,
+                        t,
+                        third,
+                        "database",
+                        "Database",
+                        "Tables of records with Board, Gallery, List and Calendar views. Reading lists, research logs, contacts.",
+                    );
+                    let (lay, lay_t) = pillar(
+                        ui,
+                        t,
+                        third,
+                        "layout",
+                        "Page Layout",
+                        "Place text boxes, shapes and pictures freely, for flyers, posters, newsletters and certificates.",
+                    );
+                    if doc_t.clicked() {
+                        g.choose_template(None);
+                    } else if doc.clicked() {
+                        g.new_from_template("blank");
+                    }
+                    if db_t.clicked() {
+                        g.choose_template(Some(crate::templates::Category::Databases));
+                    } else if db.clicked() {
+                        let mut d = crate::db::Database::new("Untitled database");
+                        d.add_select("Status", crate::db::Kind::Status, &[]);
+                        d.add_prop("Tags", crate::db::Kind::MultiSelect);
+                        d.add_prop("Date", crate::db::Kind::Date);
+                        g.open_database(d);
+                    }
+                    if lay_t.clicked() {
+                        g.choose_template(Some(crate::templates::Category::Flyers));
+                    } else if lay.clicked() {
+                        g.create_from(&crate::chooser::Pick::Builtin("blank-layout"));
                     }
                 });
+
+                // Start from a template.
+                ui.add_space(26.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Start from a template").font(semibold(15.0)).color(t.text));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if w::quiet_button(ui, t, "All Templates…", Some(130.0), 30.0).clicked() {
+                            g.choose_template(None);
+                        }
+                    });
+                });
+                ui.add_space(10.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(22.0, 18.0);
+                    let mut make = None;
+                    for id in FEATURED {
+                        let Some(tp) = crate::templates::find(id) else { continue };
+                        let pick = crate::chooser::Pick::Builtin(tp.id);
+                        if crate::chooser::tile(g, ui, t, &pick, tp.name, tp.made, &mut make) {
+                            make = Some(pick);
+                        }
+                    }
+                    if let Some(p) = make {
+                        g.create_from(&p);
+                    }
+                });
+
+                // Databases in the workspace.
+                let dbs = g.workspace_databases();
+                section_title(ui, t, "Databases");
+                if dbs.is_empty() {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Databases you make are kept in Documents › WordCraft › Databases.")
+                                .font(regular(13.0))
+                                .color(t.text_dim),
+                        );
+                        ui.add_space(12.0);
+                        if w::quiet_button(ui, t, "Open or Import…", Some(140.0), 30.0).clicked() {
+                            g.ask_file(
+                                wordcraft_ui_egui::FileDialogRequest::Open { purpose: "database".into() },
+                                crate::workspace::PickFor::OpenDatabase,
+                            );
+                        }
+                    });
+                } else {
+                    let mut open_db: Option<std::path::PathBuf> = None;
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
+                        for (name, path, icon) in dbs.iter().take(12) {
+                            let (r, resp) = ui.allocate_exact_size(vec2(220.0, 52.0), Sense::click());
+                            ui.painter().add(glass_shape(r, 14, t));
+                            paint_state(ui, r, 14, &resp, false, t);
+                            crate::glyphs::paint(
+                                ui.painter(),
+                                Rect::from_center_size(pos2(r.min.x + 26.0, r.center().y), vec2(20.0, 20.0)),
+                                icon,
+                                t.accent,
+                            );
+                            ui.painter().with_clip_rect(r.shrink(4.0)).text(
+                                pos2(r.min.x + 48.0, r.center().y),
+                                Align2::LEFT_CENTER,
+                                name,
+                                medium(13.0),
+                                t.text,
+                            );
+                            if resp.clicked() {
+                                open_db = Some(path.clone());
+                            }
+                        }
+                        if w::quiet_button(ui, t, "Open or Import…", Some(150.0), 52.0).clicked() {
+                            g.ask_file(
+                                wordcraft_ui_egui::FileDialogRequest::Open { purpose: "database".into() },
+                                crate::workspace::PickFor::OpenDatabase,
+                            );
+                        }
+                    });
+                    if let Some(p) = open_db {
+                        g.open_database_path(&p);
+                    }
+                }
 
                 // Recent.
                 section_title(ui, t, "Recent");

@@ -29,6 +29,7 @@ pub struct Dock {
 pub const NAVIGATION: Dock = Dock { id: "navigation", side: Side::Left, default: 250.0, min: 170.0, max: 440.0 };
 pub const BINDER: Dock = Dock { id: "binder", side: Side::Left, default: 260.0, min: 180.0, max: 440.0 };
 pub const VERSIONS: Dock = Dock { id: "versions", side: Side::Right, default: 310.0, min: 240.0, max: 480.0 };
+pub const FORMAT: Dock = Dock { id: "format", side: Side::Right, default: 300.0, min: 260.0, max: 460.0 };
 pub const SIDE: Dock = Dock { id: "writer", side: Side::Right, default: 330.0, min: 250.0, max: 520.0 };
 
 /// Space between a card and the window edge.

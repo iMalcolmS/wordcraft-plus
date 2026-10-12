@@ -19,6 +19,8 @@ use crate::{GlassApp, View};
 pub struct DocTab {
     pub uid: u64,
     stash: Option<(Session, CanvasState)>,
+    /// A database tab's database (its session is an unused blank document).
+    pub db: Option<Box<crate::db::Database>>,
 }
 
 #[derive(Default)]
@@ -51,10 +53,10 @@ fn stem(s: &Session) -> String {
 }
 
 impl GlassApp {
-    fn ensure_tabs(&mut self) {
+    pub(crate) fn ensure_tabs(&mut self) {
         if self.docs.tabs.is_empty() {
             self.docs.next_uid += 1;
-            self.docs.tabs.push(DocTab { uid: self.docs.next_uid, stash: None });
+            self.docs.tabs.push(DocTab { uid: self.docs.next_uid, stash: None, db: None });
             self.docs.active = 0;
         }
     }
@@ -65,7 +67,24 @@ impl GlassApp {
     }
 
     pub fn tab_title(&self, i: usize) -> String {
+        if let Some(db) = self.docs.tabs.get(i).and_then(|t| t.db.as_ref()) {
+            return if db.name.trim().is_empty() { "Untitled database".into() } else { db.name.clone() };
+        }
         self.tab_session(i).map(stem).unwrap_or_default()
+    }
+
+    /// Whether tab `i` holds a database.
+    pub fn is_db_tab(&self, i: usize) -> bool {
+        self.docs.tabs.get(i).is_some_and(|t| t.db.is_some())
+    }
+
+    /// Whether tab `i` has unsaved changes (a database saves itself, so only one without a
+    /// place to go counts).
+    pub fn tab_dirty(&self, i: usize) -> bool {
+        match self.docs.tabs.get(i).and_then(|t| t.db.as_ref()) {
+            Some(db) => db.dirty && db.path.is_none() && self.workspace.is_none(),
+            None => self.tab_session(i).is_some_and(|s| s.dirty),
+        }
     }
 
     /// Bring tab `i`'s document into the editor.
@@ -105,7 +124,7 @@ impl GlassApp {
     pub fn new_tab(&mut self, session: Session) {
         self.ensure_tabs();
         self.docs.next_uid += 1;
-        self.docs.tabs.push(DocTab { uid: self.docs.next_uid, stash: Some((session, CanvasState::default())) });
+        self.docs.tabs.push(DocTab { uid: self.docs.next_uid, stash: Some((session, CanvasState::default())), db: None });
         let i = self.docs.tabs.len() - 1;
         self.switch_to(i);
         self.glass.view = self.glass.doc_view;
@@ -118,13 +137,13 @@ impl GlassApp {
         self.docs.next_uid += 1;
         let uid = self.docs.next_uid;
         let at = (self.docs.active + 1).min(self.docs.tabs.len());
-        self.docs.tabs.insert(at, DocTab { uid, stash: Some((session, CanvasState::default())) });
+        self.docs.tabs.insert(at, DocTab { uid, stash: Some((session, CanvasState::default())), db: None });
         uid
     }
 
     /// Whether the open tab holds an untouched blank document (worth reusing).
-    fn active_is_pristine(&self) -> bool {
-        self.app.session.path.is_none() && !self.app.session.dirty && self.app.session.word_count() == 0
+    pub(crate) fn active_is_pristine(&self) -> bool {
+        !self.is_db_tab(self.docs.active) && self.app.session.path.is_none() && !self.app.session.dirty && self.app.session.word_count() == 0
     }
 
     /// Open the file at `path`: switch to its tab if it is open, else open it in a new tab (or in
@@ -132,6 +151,10 @@ impl GlassApp {
     pub fn open_path(&mut self, path: &str) {
         self.ensure_tabs();
         let p = std::path::Path::new(path);
+        if p.extension().is_some_and(|x| x == crate::db::EXT) {
+            self.open_database_path(p);
+            return;
+        }
         if let Some(i) = (0..self.docs.tabs.len()).find(|i| self.tab_session(*i).and_then(|s| s.path.as_deref()) == Some(p)) {
             self.switch_to(i);
             self.glass.view = self.glass.doc_view;
@@ -180,11 +203,12 @@ impl GlassApp {
     /// asked about one at a time first, so none is lost behind the open one.
     pub fn close_requested(&mut self) -> bool {
         let n = self.docs.tabs.len();
-        let others = (0..n).any(|i| i != self.docs.active && self.tab_session(i).is_some_and(|s| s.dirty));
+        self.save_databases(true);
+        let others = (0..n).any(|i| i != self.docs.active && self.tab_dirty(i));
         if !others {
             return self.app.close_requested();
         }
-        let first = (0..n).find(|i| self.tab_session(*i).is_some_and(|s| s.dirty));
+        let first = (0..n).find(|i| self.tab_dirty(*i));
         if let Some(i) = first {
             self.switch_to(i);
             self.docs.confirm_close = Some(self.docs.active);
@@ -195,8 +219,9 @@ impl GlassApp {
     /// Close tab `i`, asking first when its document has unsaved changes.
     pub fn close_tab(&mut self, i: usize, force: bool) {
         self.ensure_tabs();
-        let dirty = self.tab_session(i).is_some_and(|s| s.dirty);
-        if dirty && !force {
+        self.save_databases(true);
+        let dirty = self.tab_dirty(i);
+        if dirty && !force && !self.is_db_tab(i) {
             self.docs.confirm_close = Some(i);
             return;
         }
@@ -292,7 +317,8 @@ pub fn strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                     paint_state(ui, r, radius::CAPSULE, &resp, false, t);
                 }
                 let title = g.tab_title(i);
-                let dirty = g.tab_session(i).is_some_and(|s| s.dirty);
+                let is_db = g.is_db_tab(i);
+                let dirty = g.tab_dirty(i) || (!is_db && g.tab_session(i).is_some_and(|s| s.dirty));
                 let max_chars = ((tab_w - 44.0) / 7.0).max(4.0) as usize;
                 let shown: String = if title.chars().count() > max_chars {
                     format!("{}…", title.chars().take(max_chars).collect::<String>())
@@ -300,7 +326,19 @@ pub fn strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                     title.clone()
                 };
                 let font = if on { semibold(12.5) } else { medium(12.5) };
-                ui.painter().text(pos2(r.min.x + 12.0, r.center().y), Align2::LEFT_CENTER, shown, font, if on { t.text } else { t.text_dim });
+                let text_x = if is_db {
+                    let icon = g.docs.tabs.get(i).and_then(|t| t.db.as_ref()).map(|d| d.icon.clone()).unwrap_or_default();
+                    crate::glyphs::paint(
+                        ui.painter(),
+                        Rect::from_center_size(pos2(r.min.x + 19.0, r.center().y), vec2(13.0, 13.0)),
+                        &icon,
+                        if on { t.accent } else { t.text_dim },
+                    );
+                    r.min.x + 32.0
+                } else {
+                    r.min.x + 12.0
+                };
+                ui.painter().text(pos2(text_x, r.center().y), Align2::LEFT_CENTER, shown, font, if on { t.text } else { t.text_dim });
                 // The close button, or the unsaved dot when not hovered.
                 let close = Rect::from_center_size(pos2(r.max.x - 13.0, r.center().y), vec2(18.0, 18.0));
                 let cresp = ui.interact(close, ui.id().with(("glass_doc_close", uid)), Sense::click());
@@ -344,6 +382,7 @@ pub fn strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
             };
             if let (Some((i, _, r)), Some((_, since))) = (hovered, g.docs.hover)
                 && action.is_none()
+                && !g.is_db_tab(i)
             {
                 preview(g, ui.ctx(), t, i, r, now - since);
             }

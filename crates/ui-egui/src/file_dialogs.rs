@@ -42,6 +42,8 @@ pub fn open_filters(purpose: &str) -> &'static [(&'static str, &'static [&'stati
         "picture" => &[("Pictures", PICTURES)],
         "font" => &[("Fonts", wordcraft_fonts::FONT_FILE_EXTS)],
         "recipients" => &[("Recipient lists", &["csv", "tsv", "txt", "xlsx", "xlsm", "ods"]), ("All files", &["*"])],
+        // Glass's databases: a saved database, or a table or contacts to import into one.
+        "database" => &[("Databases, tables and contacts", &["wcdb", "csv", "tsv", "txt", "xlsx", "xlsm", "ods", "vcf"]), ("All files", &["*"])],
         _ => &[("Documents", DOCUMENTS), ("Word document", &["docx"]), ("All files", &["*"])],
     }
 }

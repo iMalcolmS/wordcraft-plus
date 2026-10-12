@@ -12,6 +12,7 @@ workspace = true
 wordcraft-doc = { workspace = true }
 wordcraft-geom = { workspace = true }
 wordcraft-engine = { workspace = true }
+wordcraft-formats = { workspace = true }
 wordcraft-ui-egui = { workspace = true }
 egui = { workspace = true }
 serde = { workspace = true }

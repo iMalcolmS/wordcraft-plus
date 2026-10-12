@@ -13,16 +13,22 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod analysis;
+pub mod db;
+pub mod db_view;
 pub mod docs;
 pub mod goals;
 pub mod inline;
 pub mod project;
 pub mod ribbon;
+pub mod templates;
 pub mod tokens;
 
 mod appearance;
+pub mod chooser;
 mod chrome;
 mod dock;
+pub mod format;
+pub mod glyphs;
 mod home;
 pub mod overlay;
 mod panels;
@@ -31,6 +37,7 @@ pub mod scriv;
 mod thumbs;
 mod typewriter;
 mod widgets;
+pub mod workspace;
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -191,6 +198,21 @@ pub struct GlassState {
     pub(crate) typewriter: typewriter::Typewriter,
     /// Writer Pro's Binder folds, section history, reference pane and Quick Reference.
     pub scriv: scriv::Scriv,
+    /// The database page's state (search, the cell being edited, the record open).
+    pub dbui: db_view::DbUi,
+    /// A Glass file dialog waiting for its answer.
+    pub(crate) pick: Option<workspace::PendingPick>,
+    /// The workspace's databases, and when they were listed.
+    pub(crate) db_list: (f64, Vec<(String, std::path::PathBuf, String)>),
+    /// When an open database first changed since it was last saved.
+    pub(crate) db_dirty_since: Option<f64>,
+    /// Choose a Template.
+    pub chooser: chooser::Chooser,
+    /// Page layout documents (by document id): they open with the Format inspector.
+    pub layout_docs: std::collections::HashSet<u64>,
+    /// The Format inspector (page layout) is showing, and its tab.
+    pub format_open: bool,
+    pub format_tab: String,
 }
 
 /// The Glass application: the WordCraft app plus the Glass chrome and features.
@@ -199,6 +221,8 @@ pub struct GlassApp {
     pub glass: GlassState,
     /// The open documents.
     pub docs: docs::Docs,
+    /// Where databases and their pages are saved ([`workspace::default_workspace`] in the app).
+    pub workspace: Option<std::path::PathBuf>,
     frames: u32,
     sent_title: String,
 }
@@ -207,7 +231,8 @@ impl GlassApp {
     /// A window on `app`'s document. It starts on Home when that document is an untouched blank
     /// one, and on the page otherwise.
     pub fn new(app: WordApp) -> Self {
-        let mut g = GlassApp { app, glass: GlassState::default(), docs: docs::Docs::default(), frames: 0, sent_title: String::new() };
+        let mut g =
+            GlassApp { app, glass: GlassState::default(), docs: docs::Docs::default(), workspace: None, frames: 0, sent_title: String::new() };
         let s = &g.app.session;
         if s.path.is_none() && !s.dirty && s.word_count() == 0 {
             g.glass.view = View::Home;
@@ -377,6 +402,8 @@ impl GlassApp {
         let today = Self::today();
         self.glass.tracker.tick(&mut self.glass.prefs.goals, &today, doc, words, rev, now);
         self.auto_version(now);
+        self.poll_pick();
+        self.save_databases(false);
         if let Some(sp) = self.glass.sprint
             && now - sp.started >= sp.secs
         {
@@ -470,6 +497,8 @@ impl GlassApp {
         let area = ui.available_rect_before_wrap();
         dock::show(self, ui, t, &dock::VERSIONS, versions && !focus, area, |g, ui| panels::versions(g, ui, t));
         dock::show(self, ui, t, &dock::SIDE, side && !focus, area, |g, ui| pro::side(g, ui, t));
+        let fmt = format::wanted(self);
+        dock::show(self, ui, t, &dock::FORMAT, fmt && !focus, area, |g, ui| format::panel(g, ui, t));
         dock::show(self, ui, t, &dock::BINDER, pro && self.glass.prefs.binder && !focus, area, |g, ui| scriv::binder(g, ui, t));
         dock::show(self, ui, t, &dock::NAVIGATION, nav && !focus && !(pro && self.glass.prefs.binder), area, |g, ui| panels::navigation(g, ui, t));
         let view = self.glass.view;
@@ -540,7 +569,18 @@ impl GlassApp {
             let focus = self.app.session.view.focus_mode;
             let view = self.glass.view;
             docs::strip(self, ui, &t);
-            if view == View::Home {
+            let database = view != View::Home && self.is_db_tab(self.docs.active);
+            if database {
+                egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
+                    let since = now_ms() / 1000.0 - self.docs.switched_at;
+                    let p = ((since / 0.22) as f32).clamp(0.0, 1.0);
+                    if p < 1.0 {
+                        ui.ctx().request_repaint();
+                    }
+                    ui.multiply_opacity(1.0 - (1.0 - p).powi(3));
+                    self.database_page(ui, &t);
+                });
+            } else if view == View::Home {
                 egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.canvas)).show(ui, |ui| {
                     let since = now_ms() / 1000.0 - self.docs.switched_at;
                     let p = ((since / 0.22) as f32).clamp(0.0, 1.0);
@@ -554,8 +594,9 @@ impl GlassApp {
                 self.document(ui, &t, focus);
             }
             appearance::show(self, &ctx, &t);
+            chooser::show(self, &ctx, &t);
             chrome::file_menu(self, &ctx, &t);
-            if view != View::Home {
+            if view != View::Home && !database {
                 chrome::goal_popover(self, &ctx, &t);
             }
             docs::confirm_close(self, &ctx, &t);
@@ -570,7 +611,11 @@ impl GlassApp {
         if let Some(url) = self.app.canvas.open_url.take() {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
-        let title = format!("{}{} - WordCraft Glass", self.app.title_stem(), if self.app.session.dirty { " •" } else { "" });
+        let title = if self.is_db_tab(self.docs.active) {
+            format!("{} - WordCraft Glass", self.tab_title(self.docs.active))
+        } else {
+            format!("{}{} - WordCraft Glass", self.app.title_stem(), if self.app.session.dirty { " •" } else { "" })
+        };
         if title != self.sent_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.sent_title = title;
