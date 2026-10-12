@@ -105,16 +105,6 @@ Turned on with one switch. It adds the **Writer** tab and:
 Notes, synopses, labels, statuses and scraps are saved per document next to the app's settings,
 so the `.docx` stays a clean Word file.
 
-## Screenshots
-
-| | |
-|---|---|
-| ![Home](docs/glass/01-home.png) Home | ![Ribbon](docs/glass/02-ribbon.png) The full Word ribbon on glass |
-| ![Corkboard](docs/glass/05-corkboard.png) Corkboard | ![Outliner and Pacing](docs/glass/06-outliner-pacing.png) Outliner and Pacing |
-| ![Block menu](docs/glass/07-block-menu.png) Block menu: Turn into… | ![Split and Quick Reference](docs/glass/08-split-quick-reference.png) A page link, Quick Reference and the split |
-| ![Typewriter, dark](docs/glass/09-typewriter-dark.png) Typewriter mode, dark | ![Reader's Glow](docs/glass/10-glow-rhythm-thumbnails.png) Reader's Glow, rhythm marks and page thumbnails |
-| ![Tab preview](docs/glass/11-tab-preview.png) Tab preview | ![Appearance](docs/glass/12-appearance.png) Appearance |
-
 ## Build and run
 
 You need [Rust](https://rustup.rs) (stable).
