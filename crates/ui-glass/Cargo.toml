@@ -1,0 +1,21 @@
+[package]
+name = "wordcraft-ui-glass"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WordCraft Glass: a Liquid Glass-style front end built on the WordCraft engine and the egui UI's building blocks"
+
+[lints]
+workspace = true
+
+[dependencies]
+wordcraft-doc = { workspace = true }
+wordcraft-engine = { workspace = true }
+wordcraft-ui-egui = { workspace = true }
+egui = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }

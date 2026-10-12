@@ -49,11 +49,14 @@ pub const TABLE: &[(&str, Class)] = &[
     ("mcp", Class::Layer(5)),
     ("zotero", Class::Layer(5)),
     ("ui-egui", Class::Layer(6)),
+    // The Glass front end builds on the egui front end's public building blocks.
+    ("ui-glass", Class::Layer(7)),
     ("testkit", Class::Testkit),
     // apps and tooling
     ("wordcraft", Class::Exempt),
     ("cli", Class::Exempt),
     ("web", Class::Exempt),
+    ("glass", Class::Exempt),
     ("xtask", Class::Exempt),
 ];
 
