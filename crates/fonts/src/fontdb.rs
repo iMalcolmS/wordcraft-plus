@@ -197,6 +197,16 @@ impl FontFace {
         use skrifa::raw::TableProvider;
         self.skrifa().is_some_and(|f| f.gsub().is_ok())
     }
+    /// Does the face's GSUB table have rules for one of these OpenType script tags (`mym2`,
+    /// `deva`…)? A font can map a script's letters (Unifont maps nearly everything) without
+    /// knowing how to shape them.
+    pub fn has_script(&self, tags: &[&[u8; 4]]) -> bool {
+        use skrifa::raw::TableProvider;
+        let Some(f) = self.skrifa() else { return false };
+        let Ok(gsub) = f.gsub() else { return false };
+        let Ok(list) = gsub.script_list() else { return false };
+        list.script_records().iter().any(|r| tags.iter().any(|t| r.script_tag().to_be_bytes() == **t))
+    }
     /// Units per em.
     pub fn units_per_em(&self) -> f64 {
         self.upem

@@ -66,7 +66,11 @@ fn myanmar_without_spaces_wraps_between_syllables() {
 
 /// A face with Myanmar letters (an installed system font), or `None` to skip.
 fn myanmar_face() -> Option<wordcraft_fonts::FaceRef> {
-    wordcraft_fonts::FontDb::global().fallback_for('\u{1000}', 0).map(|f| wordcraft_fonts::FaceRef::of(&f)).filter(|f| f.has_layout_tables())
+    // It must shape Myanmar, not only map its letters (GNU Unifont maps them with no Myanmar rules).
+    wordcraft_fonts::FontDb::global()
+        .fallback_for('\u{1000}', 0)
+        .map(|f| wordcraft_fonts::FaceRef::of(&f))
+        .filter(|f| f.has_layout_tables() && f.has_script(&[b"mym2", b"mymr"]))
 }
 
 #[test]
