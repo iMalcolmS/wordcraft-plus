@@ -1,2 +1,4 @@
 [alias]
 xtask = "run --package xtask --"
+# WordCraft Plus (the Glass front end): `cargo plus`, `cargo plus --sample`, `cargo plus file.docx`.
+plus = "run --release --package wordcraft-glass --"

@@ -1,4 +1,4 @@
-  <h1 align="center">WordCraft +Plus</h1>
+<h1 align="center">WordCraft Plus</h1>
 
 <p align="center">
   <b>An all-in-one writing workspace on <a href="https://github.com/storytold/wordcraft">WordCraft</a>: documents, databases and page layout, with a Writer Pro mode for long-form writing.</b>
@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img alt="WordCraft +Plus: the Writer Pro workspace with the Binder, the page and the Inspector" src="docs/glass/04-writer-pro.png" width="900">
+  <img alt="WordCraft Plus: the Writer Pro workspace with the Binder, the page and the Inspector" src="docs/glass/04-writer-pro.png" width="900">
 </p>
 
 ---
@@ -29,7 +29,7 @@
 processor by the ArtCraft team. WordCraft provides the document engine (layout, `.docx` I/O,
 styles, tables, track changes, references) and its own classic, Word-style interface.
 
-+Plus replaces only the window around the page. It lives in its own crate
+Plus replaces only the window around the page. It lives in its own crate
 (`crates/ui-glass`) and app (`apps/wordcraft-glass`), uses WordCraft's public building blocks,
 and **does not change the original interface**, which keeps working unchanged
 (`cargo run -p wordcraft`).
@@ -167,17 +167,21 @@ so the `.docx` stays a clean Word file.
 
 ## Build and run
 
-You need [Rust](https://rustup.rs) (stable).
+You need [Rust](https://rustup.rs) (stable). Then:
 
 ```sh
 git clone https://github.com/iMalcolmS/wordcraft-plus.git
 cd wordcraft-plus
-git checkout glass-ui        # if it isn't the default branch
-cargo run --release -p wordcraft-glass
+cargo plus
 ```
 
-Add `--sample` to open WordCraft's sample document, or pass `.docx` files to open them in tabs.
-The original interface is still there: `cargo run --release -p wordcraft`.
+`cargo plus` builds and opens WordCraft Plus (it is short for
+`cargo run --release -p wordcraft-glass`). The first build takes a few minutes; later ones are
+quick. Add `--sample` to open WordCraft's sample document (`cargo plus --sample`), or pass
+`.docx` files to open them in tabs. The original WordCraft interface is still there:
+`cargo run --release -p wordcraft`.
+
+To update an existing copy: `git pull`, then `cargo plus`.
 
 ## How it is built
 
@@ -188,7 +192,7 @@ The original interface is still there: `cargo run --release -p wordcraft`.
 | `crates/ui-glass/examples/glass_shot.rs` | Headless screenshots of the app (how the images above were made) |
 | `apps/wordcraft-glass` | The desktop app |
 
-+Plus follows WordCraft's rules: everything the user does runs through WordCraft commands (so
+Plus follows WordCraft's rules: everything the user does runs through WordCraft commands (so
 undo, shortcuts and file formats behave the same), no `unwrap` or panics in app code, and no
 third-party icons or images (every icon is drawn in code).
 
@@ -202,9 +206,9 @@ third-party icons or images (every icon is drawn in code).
 
 ## Credits and licence
 
-WordCraft +Plus is built on [WordCraft](https://github.com/storytold/wordcraft) by the ArtCraft
+WordCraft Plus is built on [WordCraft](https://github.com/storytold/wordcraft) by the ArtCraft
 team and the WordCraft contributors; see [README-WordCraft.md](README-WordCraft.md) for the
 original project. Like WordCraft, it is licensed under either of [MIT](LICENSE-MIT) or
 [Apache-2.0](LICENSE-APACHE), at your option.
 
- +Plus design and features by Malcolm ([@iMalcolmS](https://github.com/iMalcolmS)).
+ Plus design and features by Malcolm ([@iMalcolmS](https://github.com/iMalcolmS)).

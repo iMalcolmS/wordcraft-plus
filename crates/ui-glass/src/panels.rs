@@ -506,7 +506,7 @@ fn restore(g: &mut GlassApp, i: usize, label: &str) {
 }
 
 fn history(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
-    hint(ui, t, "WordCraft Glass keeps a version every ten minutes while you write, plus every snapshot you take. Pick one to see what changed.");
+    hint(ui, t, "WordCraft Plus keeps a version every ten minutes while you write, plus every snapshot you take. Pick one to see what changed.");
     ui.add_space(6.0);
     let today = GlassApp::today();
     let list: Vec<(usize, String, String)> =

@@ -653,9 +653,9 @@ impl GlassApp {
             ctx.open_url(egui::OpenUrl::new_tab(url));
         }
         let title = if self.is_db_tab(self.docs.active) {
-            format!("{} - WordCraft Glass", self.tab_title(self.docs.active))
+            format!("{} - WordCraft Plus", self.tab_title(self.docs.active))
         } else {
-            format!("{}{} - WordCraft Glass", self.app.title_stem(), if self.app.session.dirty { " •" } else { "" })
+            format!("{}{} - WordCraft Plus", self.app.title_stem(), if self.app.session.dirty { " •" } else { "" })
         };
         if title != self.sent_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
