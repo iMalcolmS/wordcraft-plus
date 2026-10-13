@@ -331,6 +331,29 @@ pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                         });
                     });
                 });
+
+                // Research mode.
+                section_title(ui, t, "Research");
+                card(ui, t, width, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            ui.set_width(width - 140.0);
+                            ui.label(egui::RichText::new("Tools for academic writing").font(semibold(15.0)).color(t.text));
+                            ui.add_space(4.0);
+                            let text = "A reference Library (BibTeX, RIS, Zotero, Mendeley, EndNote) with [@citations] and hover cards, \
+                                    a citation check, LaTeX and Markdown as you type, a formula library (/eq-…), numbered captions, \
+                                    tables and charts linked to data files, runnable code blocks, a citation graph and argument map, \
+                                    blind review copies, LaTeX export, compiling to one PDF, and a reviewer response log.";
+                            ui.add(egui::Label::new(egui::RichText::new(text).font(regular(13.0)).color(t.text_dim)).wrap());
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let mut on = g.glass.prefs.research;
+                            if w::switch(ui, t, &mut on).changed() {
+                                g.set_research(on);
+                            }
+                        });
+                    });
+                });
                 ui.add_space(14.0);
                 if w::quiet_button(ui, t, "Appearance…", Some(130.0), 32.0).clicked() {
                     g.glass.appearance_open = true;

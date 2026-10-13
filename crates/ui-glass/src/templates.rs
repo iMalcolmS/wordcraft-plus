@@ -30,6 +30,7 @@ pub enum Category {
     Basic,
     Reports,
     Research,
+    Academic,
     Books,
     Letters,
     Cvs,
@@ -42,10 +43,11 @@ pub enum Category {
 }
 
 impl Category {
-    pub const ALL: [Category; 12] = [
+    pub const ALL: [Category; 13] = [
         Category::Basic,
         Category::Reports,
         Category::Research,
+        Category::Academic,
         Category::Books,
         Category::Letters,
         Category::Cvs,
@@ -62,6 +64,7 @@ impl Category {
             Category::Basic => "Basic",
             Category::Reports => "Reports",
             Category::Research => "Research & Study",
+            Category::Academic => "Academic Journals",
             Category::Books => "Books",
             Category::Letters => "Letters",
             Category::Cvs => "Curricula Vitae",
@@ -80,6 +83,7 @@ impl Category {
             Category::Basic => "doc",
             Category::Reports => "table",
             Category::Research => "cap",
+            Category::Academic => "book",
             Category::Books => "book",
             Category::Letters => "pen",
             Category::Cvs => "person",
@@ -98,6 +102,9 @@ impl Category {
             Category::Flyers | Category::Certificates => "Page layouts: text boxes, shapes and pictures placed freely on the page.",
             Category::Databases => "Tables of records with views (Table, Board, Gallery, List, Calendar); every record opens as a page.",
             Category::Research => "For students and researchers: essays, papers, notes, and a thesis chapter.",
+            Category::Academic => {
+                "Papers set by the public rules of common styles, with their citation style chosen. Our own layouts, not the publishers' files: check the journal's instructions."
+            }
             Category::Mine => "Documents and databases you saved as templates.",
             _ => "",
         }
@@ -133,6 +140,15 @@ pub const ALL: &[Template] = &[
     t("lab-report", "Lab Report", Category::Research, Made::Document),
     t("lecture-notes", "Lecture Notes", Category::Research, Made::Document),
     t("thesis-chapter", "Thesis Chapter", Category::Research, Made::Document),
+    t("acad-apa7", "APA 7 Student Paper", Category::Academic, Made::Document),
+    t("acad-ieee", "IEEE-style Conference Paper", Category::Academic, Made::Document),
+    t("acad-abnt", "ABNT Article (NBR 6022)", Category::Academic, Made::Document),
+    t("acad-chicago", "Chicago Paper", Category::Academic, Made::Document),
+    t("acad-nature", "Nature-style Letter", Category::Academic, Made::Document),
+    t("acad-elsevier", "Elsevier-style Article", Category::Academic, Made::Document),
+    t("acad-springer", "Springer-style Article", Category::Academic, Made::Document),
+    t("acad-thesis", "Thesis (ABNT NBR 14724)", Category::Academic, Made::Document),
+    t("acad-response", "Response to Reviewers", Category::Academic, Made::Document),
     t("novel", "Novel Manuscript", Category::Books, Made::Document),
     t("illustrated-novel", "Illustrated Novel", Category::Books, Made::Document),
     t("screenplay", "Screenplay", Category::Books, Made::Document),
@@ -157,6 +173,7 @@ pub const ALL: &[Template] = &[
     t("db-assignments", "Assignments", Category::Databases, Made::Database),
     t("db-courses", "Course Planner", Category::Databases, Made::Database),
     t("db-research-log", "Research Log", Category::Databases, Made::Database),
+    t("db-reviews", "Reviewer Responses", Category::Databases, Made::Database),
     t("db-projects", "Projects", Category::Databases, Made::Database),
     t("db-contacts", "Contacts", Category::Databases, Made::Database),
     t("db-characters", "Characters", Category::Databases, Made::Database),
@@ -461,6 +478,9 @@ pub fn draw(art: Art, w: usize, h: usize) -> Vec<u8> {
 
 /// Build template `id` as a document (`None` for a database template or an unknown id).
 pub fn document(id: &str) -> Option<Document> {
+    if id.starts_with("acad-") {
+        return crate::academic::document(id);
+    }
     let d = match id {
         "blank" => Document::new(),
         "blank-landscape" => {
@@ -1151,6 +1171,7 @@ pub fn database(id: &str) -> Option<Database> {
         "db-assignments" => assignments(),
         "db-courses" => courses(),
         "db-research-log" => research_log(),
+        "db-reviews" => crate::reviews::database(),
         "db-projects" => projects(),
         "db-contacts" => contacts(),
         "db-characters" => characters(),

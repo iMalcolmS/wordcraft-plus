@@ -47,6 +47,81 @@ pub enum Item {
     Glass(Local, &'static str, &'static str),
     /// View › Focus.
     Focus,
+    /// Research mode: a tool (action, label, icon).
+    Research(RAct, &'static str, &'static str),
+    /// An engine command, run as the classic ribbon runs it (dialogs included): icon, label, id.
+    Cmd(&'static str, &'static str, &'static str),
+}
+
+/// Research mode's tools.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RAct {
+    Library,
+    Check,
+    HoverCards,
+    Sections,
+    Scratchpad,
+    Formulas,
+    Code,
+    Data,
+    Graph,
+    Argument,
+    Submit,
+    BlindCopy,
+    ImportReview,
+    CommentsToLog,
+    ResponseLetter,
+}
+
+const RESEARCH: &[Group] = &[
+    Group {
+        name: "Citations",
+        items: &[
+            Item::Research(RAct::Library, "Library", "sources"),
+            Item::Cmd("toc", "Bibliography", "references.bibliography"),
+            Item::Research(RAct::Check, "Citation\nCheck", "checkErrors"),
+            Item::Research(RAct::HoverCards, "Hover\nCards", "researcher"),
+        ],
+    },
+    Group {
+        name: "Writing",
+        items: &[
+            Item::Research(RAct::Sections, "Sections", "navPane"),
+            Item::Research(RAct::Scratchpad, "Scratchpad", "paste"),
+            Item::Research(RAct::Formulas, "Formulas", "equation"),
+            Item::Research(RAct::Code, "Code", "macros"),
+        ],
+    },
+    Group {
+        name: "Figures",
+        items: &[
+            Item::Cmd("caption", "Caption", "references.caption"),
+            Item::Cmd("crossRef", "Cross-\nreference", "insert.crossReference"),
+            Item::Research(RAct::Data, "Linked\nData", "chart"),
+            Item::Cmd("tableOfFigures", "Table of\nFigures", "references.tableOfFigures"),
+        ],
+    },
+    Group {
+        name: "Insight",
+        items: &[Item::Research(RAct::Graph, "Citation\nGraph", "share"), Item::Research(RAct::Argument, "Argument\nMap", "outline")],
+    },
+    Group {
+        name: "Submit",
+        items: &[Item::Research(RAct::BlindCopy, "Blind\nCopy", "protect"), Item::Research(RAct::Submit, "Export &\nCompile", "save")],
+    },
+    Group {
+        name: "Reviews",
+        items: &[
+            Item::Research(RAct::ImportReview, "Import\nReview", "open"),
+            Item::Research(RAct::CommentsToLog, "Comments\nto Log", "comment"),
+            Item::Research(RAct::ResponseLetter, "Response\nLetter", "mailMerge"),
+        ],
+    },
+];
+
+/// The Research tab's groups.
+pub fn research_groups() -> &'static [Group] {
+    RESEARCH
 }
 
 pub struct Group {
@@ -110,12 +185,17 @@ pub fn writer_groups() -> &'static [Group] {
 }
 
 /// The tabs shown, in order: File, the main tabs, then the contextual ones for the selection.
-pub fn tabs(app: &WordApp, pro: bool) -> Vec<String> {
+pub fn tabs(app: &WordApp, pro: bool, research: bool) -> Vec<String> {
     let mut v: Vec<String> = vec!["File".into()];
     for e in app.session.ribbon.tabs().iter().filter(|e| !e.hidden) {
         v.push(e.name.clone());
-        if pro && e.name == "Home" {
-            v.push("Writer".into());
+        if e.name == "Home" {
+            if pro {
+                v.push("Writer".into());
+            }
+            if research {
+                v.push("Research".into());
+            }
         }
     }
     for ct in wordcraft_ui_egui::ribbon::contextual_tabs(&app.session) {
@@ -132,10 +212,12 @@ pub fn tabs(app: &WordApp, pro: bool) -> Vec<String> {
 pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
     // Every Word tab is WordCraft's own ribbon, complete — every group, gallery, menu and
     // split button — set on the glass. Only Writer Pro's tab is drawn here.
-    if g.app.ui.tab != "Writer" {
+    let research = g.app.ui.tab == "Research" && g.glass.prefs.research;
+    if g.app.ui.tab != "Writer" && !research {
         classic(g, ui, t, expanded);
         return;
     }
+    let groups = if research { RESEARCH } else { WRITER };
     let tab = g.app.ui.tab.clone();
     let now = ui.input(|i| i.time);
     let changed = g.glass.shown_tab != tab;
@@ -196,7 +278,7 @@ pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
                     ui.multiply_opacity(ease);
                     ui.horizontal_top(|ui| {
                         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-                        for (k, grp) in WRITER.iter().enumerate() {
+                        for (k, grp) in groups.iter().enumerate() {
                             group(ui, t, grp.name, k == 0, |ui| {
                                 items(g, ui, t, grp.items);
                             });
@@ -274,7 +356,7 @@ fn classic(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, expanded: bool) {
     let now = ui.input(|i| i.time);
     if g.glass.shown_tab != g.app.ui.tab {
         // The new tab's groups slide in from the side the tab is on.
-        let order = tabs(&g.app, g.glass.prefs.pro);
+        let order = tabs(&g.app, g.glass.prefs.pro, g.glass.prefs.research);
         let from = order.iter().position(|n| *n == g.glass.shown_tab);
         let to = order.iter().position(|n| *n == g.app.ui.tab);
         g.glass.tab_dir = match (from, to) {
@@ -397,7 +479,79 @@ fn items(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, list: &'static [Item]) {
                 let on = g.app.session.view.focus_mode;
                 w::big(ui, &mut g.app, t, "focus", "Focus", "view.focus", json!({}), false, on);
             }
+            Item::Cmd(icon, label, id) => {
+                w::big(ui, &mut g.app, t, icon, label, id, json!({}), false, false);
+            }
+            Item::Research(act, label, icon) => research_button(g, ui, t, *act, label, icon),
         }
+    }
+}
+
+impl GlassApp {
+    /// Whether a Research tool is showing.
+    pub fn research_on(&self, act: RAct) -> bool {
+        use crate::research::RView;
+        let panel = |v: RView| self.glass.panel == Some(crate::Panel::Research(v));
+        match act {
+            RAct::Library => panel(RView::Library),
+            RAct::Check => panel(RView::Check),
+            RAct::HoverCards => self.glass.prefs.hover_cards,
+            RAct::Sections => self.glass.prefs.binder,
+            RAct::Scratchpad => self.glass.panel == Some(crate::Panel::Scratchpad),
+            RAct::Formulas => panel(RView::Formulas),
+            RAct::Code => panel(RView::Code),
+            RAct::Data => panel(RView::Data),
+            RAct::Graph => panel(RView::Graph),
+            RAct::Argument => panel(RView::Argument),
+            RAct::Submit => panel(RView::Submit),
+            RAct::BlindCopy | RAct::ImportReview | RAct::CommentsToLog | RAct::ResponseLetter => false,
+        }
+    }
+
+    /// Use a Research tool.
+    pub fn research_act(&mut self, act: RAct) {
+        use crate::research::RView;
+        match act {
+            RAct::Library => self.research_panel(RView::Library),
+            RAct::Check => self.research_panel(RView::Check),
+            RAct::HoverCards => {
+                self.glass.prefs.hover_cards = !self.glass.prefs.hover_cards;
+                self.app.status(if self.glass.prefs.hover_cards { "Hover cards on: rest the pointer on a citation" } else { "Hover cards off" });
+            }
+            RAct::Sections => self.glass.prefs.binder = !self.glass.prefs.binder,
+            RAct::Scratchpad => self.toggle(Local::Scratchpad),
+            RAct::Formulas => self.research_panel(RView::Formulas),
+            RAct::Code => self.research_panel(RView::Code),
+            RAct::Data => self.research_panel(RView::Data),
+            RAct::Graph => self.research_panel(RView::Graph),
+            RAct::Argument => self.research_panel(RView::Argument),
+            RAct::Submit => self.research_panel(RView::Submit),
+            RAct::BlindCopy => self.blind_copy(),
+            RAct::ImportReview => {
+                self.ask_file(wordcraft_ui_egui::FileDialogRequest::Open { purpose: "reviews".into() }, crate::workspace::PickFor::ImportReviews)
+            }
+            RAct::CommentsToLog => self.comments_to_log(),
+            RAct::ResponseLetter => self.response_letter(),
+        }
+    }
+}
+
+fn research_button(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, act: RAct, label: &str, icon: &str) {
+    let on = g.research_on(act);
+    let lines: Vec<&str> = label.split('\n').collect();
+    let font = regular(11.0);
+    let text_w = lines.iter().map(|l| ui.ctx().fonts_mut(|f| f.layout_no_wrap((*l).to_string(), font.clone(), t.text).size().x)).fold(0.0, f32::max);
+    let (r, resp) = ui.allocate_exact_size(vec2((text_w + 14.0).max(50.0), BIG_H), Sense::click());
+    crate::tokens::paint_state(ui, r, radius::BUTTON, &resp, on, t);
+    let c = if on { t.accent } else { t.text };
+    icons::paint(ui.painter(), Rect::from_center_size(pos2(r.center().x, r.min.y + 19.0), vec2(26.0, 26.0)), icon, c, t.accent);
+    let mut y = r.min.y + 37.0;
+    for l in lines {
+        ui.painter().text(pos2(r.center().x, y), egui::Align2::CENTER_TOP, l, font.clone(), c);
+        y += 12.5;
+    }
+    if resp.on_hover_text(label.replace('\n', " ")).clicked() {
+        g.research_act(act);
     }
 }
 

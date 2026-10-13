@@ -665,7 +665,23 @@ fn document_view(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, uid: Option<u64>) {
 // The Binder.
 
 fn row(ui: &mut Ui, t: &Tokens, depth: usize, kind: Icon, text: &str, fold: Option<bool>, on: bool, dot: Option<Color32>) -> (egui::Response, bool) {
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
+    row_sensing(ui, t, depth, kind, text, fold, on, dot, Sense::click())
+}
+
+/// A Binder row that can also be dragged.
+#[allow(clippy::too_many_arguments)]
+fn row_sensing(
+    ui: &mut Ui,
+    t: &Tokens,
+    depth: usize,
+    kind: Icon,
+    text: &str,
+    fold: Option<bool>,
+    on: bool,
+    dot: Option<Color32>,
+    sense: Sense,
+) -> (egui::Response, bool) {
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), sense);
     paint_state(ui, r, 6, &resp, on, t);
     let x = r.min.x + 4.0 + depth as f32 * 14.0;
     let mut toggled = false;
@@ -689,6 +705,44 @@ fn row(ui: &mut Ui, t: &Tokens, depth: usize, kind: Icon, text: &str, fold: Opti
         ui.painter().circle_filled(pos2(r.max.x - 10.0, r.center().y), 3.5, c);
     }
     (resp, toggled)
+}
+
+/// The section `i` sits under (`None`: the top).
+fn parent_of(secs: &[crate::project::Section], i: usize) -> Option<usize> {
+    let level = secs.get(i)?.level;
+    secs.iter().take(i).rposition(|s| s.level < level)
+}
+
+/// The siblings of section `i` (same level, same parent), in order.
+fn siblings(secs: &[crate::project::Section], i: usize) -> Vec<usize> {
+    let Some(level) = secs.get(i).map(|s| s.level) else { return Vec::new() };
+    let parent = parent_of(secs, i);
+    (0..secs.len()).filter(|j| secs.get(*j).is_some_and(|s| s.level == level) && parent_of(secs, *j) == parent).collect()
+}
+
+/// Where dropping section `from` on row `over` puts it: the sibling whose part holds that row.
+pub(crate) fn drop_target(secs: &[crate::project::Section], from: usize, over: usize) -> Option<usize> {
+    let sib = siblings(secs, from);
+    if sib.contains(&over) {
+        return Some(over);
+    }
+    // A row inside a sibling's part counts as that sibling.
+    let first = *sib.first()?;
+    let last_end = sib
+        .last()
+        .map(|l| (l + 1..secs.len()).find(|j| secs.get(*j).is_some_and(|s| s.level <= secs.get(*l).map_or(0, |x| x.level))).unwrap_or(secs.len()))?;
+    if over < first || over >= last_end {
+        return None;
+    }
+    sib.iter().copied().rfind(|s| *s <= over)
+}
+
+/// How many places among its siblings section `from` moves to reach `to`.
+pub(crate) fn sibling_offset(secs: &[crate::project::Section], from: usize, to: usize) -> Option<i64> {
+    let sib = siblings(secs, from);
+    let a = sib.iter().position(|s| *s == from)? as i64;
+    let b = sib.iter().position(|s| *s == to)? as i64;
+    Some(b - a)
 }
 
 /// The Binder: Manuscript (sections as folders and documents), open documents, Characters,
@@ -717,6 +771,10 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
         }
         let mut go: Option<usize> = None;
         let mut action: Option<(usize, u8)> = None;
+        // Sections can be dragged to a new place among their siblings.
+        let mut shown_rows: Vec<(usize, Rect)> = Vec::new();
+        let mut drag_from: Option<usize> = None;
+        let mut dropped = false;
         if man_open {
             let mut hidden_below: Option<u8> = None;
             for (i, s) in secs.iter().enumerate() {
@@ -731,7 +789,7 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 let card = g.glass.projects.by_doc.get(&pkey).map(|p| p.card(&s.title)).unwrap_or_default();
                 let tag = g.glass.projects.by_doc.get(&pkey).and_then(|p| p.card_tag(&card));
                 let depth = 1 + usize::from(s.level.saturating_sub(base).min(5));
-                let (resp, tog) = row(
+                let (resp, tog) = row_sensing(
                     ui,
                     t,
                     depth,
@@ -740,7 +798,13 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                     has_children.then_some(open),
                     cur == Some(i) && g.glass.view == View::Page,
                     if tag.is_some() { None } else { (card.status != Status::ToDo).then(|| status_color(card.status, t)) },
+                    Sense::click_and_drag(),
                 );
+                shown_rows.push((i, resp.rect));
+                if resp.dragged() || resp.drag_stopped() {
+                    drag_from = Some(i);
+                    dropped |= resp.drag_stopped();
+                }
                 if let Some(tag) = &tag {
                     crate::labels::mark(
                         ui.painter(),
@@ -777,6 +841,37 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
             }
             if secs.is_empty() {
                 ui.label(egui::RichText::new("      Headings become chapters and scenes here.").font(regular(11.5)).color(t.text_dim));
+            }
+            if let Some(from) = drag_from {
+                let pointer = ui.ctx().pointer_interact_pos();
+                let over = pointer.and_then(|p| shown_rows.iter().find(|(_, r)| p.y >= r.min.y && p.y < r.max.y).map(|(j, _)| *j));
+                let to = over.and_then(|j| drop_target(&secs, from, j));
+                // A line where it will land, and the dragged row's title under the pointer.
+                if let (Some(to), Some(p)) = (to, pointer)
+                    && let Some((_, r)) = shown_rows.iter().find(|(j, _)| *j == to)
+                {
+                    let y = if to > from { r.max.y } else { r.min.y };
+                    ui.painter().hline(r.min.x + 6.0..=r.max.x - 6.0, y, Stroke::new(2.0, t.accent));
+                    if let Some(sec) = secs.get(from) {
+                        let layer = ui.painter().clone().with_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("binder_drag")));
+                        let label: String = sec.title.chars().take(30).collect();
+                        let galley = layer.layout_no_wrap(label, medium(12.0), t.text);
+                        let br = Rect::from_min_size(p + vec2(12.0, -10.0), galley.size() + vec2(16.0, 8.0));
+                        layer.add(crate::tokens::popover_shape(br, 8, t));
+                        layer.galley(br.min + vec2(8.0, 4.0), galley, t.text);
+                    }
+                }
+                if dropped
+                    && let Some(to) = to
+                    && to != from
+                {
+                    let by = sibling_offset(&secs, from, to);
+                    if let (Some(sec), Some(by)) = (secs.get(from).cloned(), by) {
+                        crate::pro::move_section(g, &sec, by);
+                    }
+                } else if dropped && over.is_some() && to.is_none() {
+                    g.app.status("Sections move among the ones at the same level: drag it beside a sibling");
+                }
             }
         }
         match action {
@@ -994,6 +1089,22 @@ pub fn section_boxes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn binder_drops_land_among_siblings() {
+        let sec = |level: u8| Section { path: Path::top(0), level, title: String::new(), words: 0, opening: String::new(), text: String::new() };
+        // Ch1 (0), Sc1.1 (1), Sc1.2 (2), Ch2 (3), Sc2.1 (4), Ch3 (5).
+        let secs = vec![sec(0), sec(1), sec(1), sec(0), sec(1), sec(0)];
+        assert_eq!(drop_target(&secs, 0, 5), Some(5));
+        assert_eq!(sibling_offset(&secs, 0, 5), Some(2));
+        // A row inside Chapter 2 counts as Chapter 2.
+        assert_eq!(drop_target(&secs, 0, 4), Some(3));
+        assert_eq!(drop_target(&secs, 5, 1), Some(0));
+        assert_eq!(sibling_offset(&secs, 5, 0), Some(-2));
+        // Scenes move within their chapter only.
+        assert_eq!(drop_target(&secs, 1, 2), Some(2));
+        assert_eq!(drop_target(&secs, 1, 4), None);
+    }
 
     #[test]
     fn swapping_the_split_brings_the_other_document_into_the_editor() {

@@ -64,6 +64,8 @@ pub struct Scrap {
     pub from: String,
     /// When it was cut (ISO, UTC).
     pub date: String,
+    /// What it is: empty for cut text, else `snippet`, `quote` or `equation` (LaTeX).
+    pub kind: String,
 }
 
 /// Where a section stands.
@@ -188,6 +190,8 @@ pub struct Project {
     pub tags: Vec<Tag>,
     tags_seeded: bool,
     next_id: u64,
+    /// Research mode: argument roles set by hand, by the paragraph's opening words.
+    pub roles: BTreeMap<String, String>,
 }
 
 impl Project {
@@ -212,8 +216,18 @@ impl Project {
             return;
         }
         let text: String = text.chars().take(MAX_TEXT).collect();
-        self.scraps.insert(0, Scrap { text, from: from.to_string(), date: date.to_string() });
+        self.scraps.insert(0, Scrap { text, from: from.to_string(), date: date.to_string(), kind: String::new() });
         self.scraps.truncate(MAX_SCRAPS);
+    }
+
+    /// Keep a research snippet, quote or equation in the Scratchpad.
+    pub fn add_snippet(&mut self, kind: &str, text: &str, from: &str, date: &str) {
+        self.add_scrap(text, from, date);
+        if let Some(s) = self.scraps.first_mut()
+            && s.date == date
+        {
+            s.kind = kind.to_string();
+        }
     }
 
     pub fn card(&self, title: &str) -> Card {

@@ -150,6 +150,41 @@ Turned on with one switch. It adds the **Writer** tab and:
 Notes, synopses, labels, statuses and scraps are saved per document next to the app's settings,
 so the `.docx` stays a clean Word file.
 
+### Research mode (for academic writing)
+
+Turned on with the **Research** switch (toolbar, Home or Appearance), like Writer Pro. It adds
+the **Research** tab:
+
+- **Library**: import BibTeX, RIS (Zotero, Mendeley, EndNote, databases), CSL-JSON and EndNote
+  XML; **link** a `.bib`/`.ris` file your reference manager keeps up to date (read again when
+  it changes); **Sync Zotero** from the Zotero app (local API). Click a reference, or type
+  **`[@`** in the text, to cite it; twelve bibliography styles; export `.bib`.
+- **Hover cards**: rest the pointer on a citation for its authors, title, journal, abstract,
+  DOI link and whether the bibliography lists it.
+- **Citation check**: citations without a source, sources never cited, a missing bibliography,
+  and claims with no citation ("studies show…", "segundo…", percentages), marked on the page.
+- **Sections** (the Binder, retractable) with **drag-and-drop** reordering, and a **Research
+  Scratchpad** for snippets, quotes and equations.
+- **LaTeX and Markdown as you type**: `$…$` becomes an equation; `**bold**`, `*italic*`,
+  `` `code` ``, `# ` headings and `> ` quotes. A **formula library** with a quick menu
+  (`/eq-matriz`, `/eq-bayes`…); save any equation into it.
+- **Captions** numbered automatically and kept in order when figures move; cross-references;
+  tables of figures. **Linked data**: a table or chart linked to a CSV, TSV, Excel or JSON file
+  (written by R, Python or anything else) updates when the file changes.
+- **Code blocks** (Python, R, MATLAB/Octave, Julia) with syntax colours; Run puts the printed
+  output and the plots (Matplotlib, R, Octave) right below the block. Uses the interpreters
+  installed on your computer.
+- **Citation graph** (works joined when cited together, by the same author or on the same
+  topic) and **Argument map** (Hypothesis → Evidence → Limitation → Conclusion).
+- **Submit**: a **blind review copy** (authors, affiliations, file details, comment and change
+  authors removed), a **LaTeX package** (`main.tex` with `\cite`, `references.bib`,
+  `figures/`), a **submission PDF**, and **Compile** several documents into one PDF.
+- **Reviewer responses**: import a review (text, Markdown, Word) or the manuscript's comments
+  into a Reviewer Responses database, then write the **response letter** from it.
+- **Academic templates**: APA 7, IEEE-style, ABNT (NBR 6022, thesis NBR 14724), Chicago,
+  Nature-, Elsevier- and Springer-style papers and a response letter, each with its citation
+  style. They are our own layouts following the public style rules, not the publishers' files.
+
 ## Screenshots
 
 | | |
@@ -164,6 +199,9 @@ so the `.docx` stays a clean Word file.
 | ![Choose a Template](docs/glass/17-choose-template.png) Choose a Template | ![Database board](docs/glass/18-database-board.png) A database as a Board |
 | ![Database calendar](docs/glass/19-database-calendar.png) Assignments on a Calendar | ![Page layout](docs/glass/20-page-layout-format.png) A page layout and the Format inspector |
 | ![Dictionary](docs/glass/21-dictionary.png) Dictionary & Thesaurus | ![Colour labels](docs/glass/22-colour-labels.png) Colour labels in the Binder and on cards |
+| ![Research Library](docs/glass/23-research-library.png) Research mode: the Library | ![Citation check](docs/glass/24-citation-check.png) Citation check, a claim marked on the page |
+| ![Argument map](docs/glass/25-argument-map.png) Argument map | ![Code block](docs/glass/26-code-block.png) A Python block run in the document |
+| ![Submit](docs/glass/27-submit.png) Blind review, LaTeX package, compile | ![Academic templates](docs/glass/28-academic-templates.png) Academic templates |
 
 ## Build and run
 

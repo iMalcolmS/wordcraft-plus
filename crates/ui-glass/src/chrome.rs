@@ -125,7 +125,8 @@ pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                             }
                         });
                         let r2 = pro_pill(g, ui, t, h);
-                        right_start = r.min.x.min(r2.min.x);
+                        let r3 = research_pill(g, ui, t, h);
+                        right_start = r.min.x.min(r2.min.x).min(r3.min.x);
                     });
                 });
                 let space = Rect::from_min_max(pos2(left_end + 16.0, row.min.y), pos2(right_start - 16.0, row.max.y));
@@ -137,8 +138,32 @@ pub fn toolbar(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
 /// The Writer Pro switch in the toolbar: a glass capsule that lights up with the accent when on.
 fn pro_pill(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, h: f32) -> Rect {
     let on = g.glass.prefs.pro;
+    let tip = if on { "Writer Pro is on: Binder, Corkboard, Outliner, [[links]], / commands" } else { "Turn on Writer Pro" };
+    let (r, clicked) = mode_pill(ui, t, h, "Writer Pro", on, tip);
+    if clicked {
+        g.set_pro(!on);
+    }
+    r
+}
+
+/// The Research mode switch.
+fn research_pill(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, h: f32) -> Rect {
+    let on = g.glass.prefs.research;
+    let tip = if on {
+        "Research mode is on: Library, citation check, hover cards, formulas, code, linked data, submission"
+    } else {
+        "Turn on Research mode: citations, LaTeX, figures, code blocks, blind review, LaTeX export"
+    };
+    let (r, clicked) = mode_pill(ui, t, h, "Research", on, tip);
+    if clicked {
+        g.set_research(!on);
+    }
+    r
+}
+
+/// A mode switch: a glass capsule that lights up with the accent when on.
+fn mode_pill(ui: &mut Ui, t: &Tokens, h: f32, label: &str, on: bool, tip: &str) -> (Rect, bool) {
     let font = semibold(12.0);
-    let label = "Writer Pro";
     let tw = ui.ctx().fonts_mut(|f| f.layout_no_wrap(label.to_string(), font.clone(), t.text).size().x);
     let (r, resp) = ui.allocate_exact_size(vec2(tw + 38.0, h), Sense::click());
     let a = ui.ctx().animate_bool_with_time(resp.id.with("on"), on, 0.2);
@@ -153,11 +178,8 @@ fn pro_pill(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, h: f32) -> Rect {
         ui.painter().circle_stroke(dot, 4.0 + 3.0 * a, Stroke::new(1.0, t.accent.gamma_multiply(0.35 * a)));
     }
     ui.painter().text(pos2(r.min.x + 27.0, r.center().y), Align2::LEFT_CENTER, label, font, lerp_color(t.text, t.accent, a));
-    let tip = if on { "Writer Pro is on: Binder, Corkboard, Outliner, [[links]], / commands" } else { "Turn on Writer Pro" };
-    if resp.on_hover_text(tip).clicked() {
-        g.set_pro(!on);
-    }
-    r
+    let clicked = resp.on_hover_text(tip).clicked();
+    (r, clicked)
 }
 
 /// Tabs that live behind "More" unless one of them is open.
@@ -166,7 +188,7 @@ const EXTRA_TABS: [&str; 6] = ["Draw", "Design", "Mailings", "Developer", "Zoter
 /// The tabs as a glass segmented control. The selected tab's pill glides to the tab you pick.
 fn tab_strip(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, space: Rect) {
     let current = g.app.ui.tab.clone();
-    let all = crate::ribbon::tabs(&g.app, g.glass.prefs.pro);
+    let all = crate::ribbon::tabs(&g.app, g.glass.prefs.pro, g.glass.prefs.research);
     let mut names: Vec<String> = all.iter().filter(|n| !EXTRA_TABS.contains(&n.as_str())).cloned().collect();
     let extras: Vec<String> = all.iter().filter(|n| EXTRA_TABS.contains(&n.as_str())).cloned().collect();
     // A tab from More shows its name on the More button while it is open.

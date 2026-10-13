@@ -1,6 +1,9 @@
 //! Writer Pro, as you type: `[[` links to another part of the manuscript (as Obsidian does) and
 //! `/` at the start of a paragraph turns it into anything (as Notion does).
 //!
+//! In Research mode, `[@` cites from the Library (as Pandoc writes citations), and `/` also
+//! offers code blocks, captions and the saved formulas (`/eq-matriz`).
+//!
 //! Both open a small glass menu at the caret that filters as you keep typing. ↑ ↓ move, Return or
 //! Tab picks, Escape closes. What gets written is plain Word: a `[[link]]` becomes an ordinary
 //! hyperlink to a bookmark on the heading (⌘-click follows it, and it survives .docx), and a
@@ -21,6 +24,8 @@ use crate::tokens::{Tokens, popover_shape};
 pub enum Kind {
     Link,
     Slash,
+    /// Research mode: `[@` cites a reference from the Library.
+    Cite,
 }
 
 /// A trigger found before the caret: its kind, where it starts and what was typed after it.
@@ -80,6 +85,15 @@ pub fn detect(s: &Session) -> Option<Trigger> {
     {
         return Some(Trigger { kind: Kind::Slash, start: Pos::new(StoryRef::Body, focus.path.clone(), 0), query: q.to_string() });
     }
+    // `[@` with no closing `]` after it (Research mode's citations).
+    if let Some(at) = before.rfind("[@")
+        && let Some(q) = before.get(at + 2..)
+        && !q.contains(']')
+        && !q.contains(wordcraft_engine::doc::para::OBJ)
+        && q.chars().count() <= MAX_QUERY
+    {
+        return Some(Trigger { kind: Kind::Cite, start: Pos::new(StoryRef::Body, focus.path.clone(), at), query: q.to_string() });
+    }
     // `[[` with no closing `]` after it.
     let at = before.rfind("[[")?;
     let q = before.get(at + 2..)?;
@@ -92,9 +106,29 @@ pub fn detect(s: &Session) -> Option<Trigger> {
 /// One row of the menu: label, hint, and what picking it does.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Pick {
-    Heading { title: String, path: wordcraft_engine::doc::Path },
-    Command { id: &'static str, params: &'static str },
+    Heading {
+        title: String,
+        path: wordcraft_engine::doc::Path,
+    },
+    Command {
+        id: &'static str,
+        params: &'static str,
+    },
+    /// Research: cite the Library reference with this key.
+    Cite(String),
+    /// Research: insert this LaTeX as an equation.
+    Latex(String),
+    /// Research: a code block in this language.
+    Code(crate::codeblocks::Lang),
 }
+
+/// Research mode's `/` commands: label, hint, command id and params.
+const RESEARCH_SLASH: &[(&str, &str, &str, &str)] = &[
+    ("Figure caption", "Numbered: Figure 1, 2…", "references.caption", r#"{"label": "Figure"}"#),
+    ("Table caption", "Numbered: Table 1, 2…", "references.caption", r#"{"label": "Table", "position": "above"}"#),
+    ("Cross-reference", "To a figure, table or heading", "insert.crossReference", ""),
+    ("Bibliography", "The works cited", "references.bibliography", ""),
+];
 
 fn matches(label: &str, query: &str) -> Option<usize> {
     let l = label.to_lowercase();
@@ -141,9 +175,70 @@ pub fn rows(s: &Session, tr: &Trigger) -> Vec<(String, String, Pick)> {
                 }
             }
         }
+        Kind::Cite => {}
     }
     out.sort_by_key(|r| r.0);
     out.into_iter().take(8).map(|(_, a, b, c)| (a, b, c)).collect()
+}
+
+/// The rows for a trigger, with Research mode's added when it is on.
+pub fn rows_for(g: &mut GlassApp, tr: &Trigger) -> Vec<(String, String, Pick)> {
+    let mut list = if tr.kind == Kind::Cite { Vec::new() } else { rows(&g.app.session, tr) };
+    if !g.glass.prefs.research {
+        return list;
+    }
+    let mut more: Vec<(usize, String, String, Pick)> = Vec::new();
+    match tr.kind {
+        Kind::Cite => {
+            let q = tr.query.trim().to_lowercase();
+            for r in g.library_mut().refs.iter() {
+                let rank = if q.is_empty() || r.key.to_lowercase().starts_with(&q) {
+                    0
+                } else if r.haystack().contains(&q) {
+                    1
+                } else {
+                    continue;
+                };
+                let label = if r.title.is_empty() { r.key.clone() } else { r.title.clone() };
+                more.push((rank, label, format!("{} · {}", r.label(), r.key), Pick::Cite(r.key.clone())));
+                if more.len() > 200 {
+                    break;
+                }
+            }
+        }
+        Kind::Slash => {
+            for (label, hint, id, params) in RESEARCH_SLASH {
+                if let Some(rank) = matches(label, &tr.query) {
+                    more.push((rank, (*label).to_string(), (*hint).to_string(), Pick::Command { id, params }));
+                }
+            }
+            for lang in crate::codeblocks::Lang::ALL {
+                let label = format!("{} code", lang.name());
+                if let Some(rank) = matches(&label, &tr.query).or_else(|| matches("code", &tr.query)) {
+                    more.push((rank, label, "A notebook block you can run".into(), Pick::Code(lang)));
+                }
+            }
+            for f in g.formulas().iter() {
+                let label = format!("eq-{}", f.name);
+                if let Some(rank) = matches(&label, &tr.query) {
+                    more.push((rank, label, f.latex.chars().take(40).collect(), Pick::Latex(f.latex.clone())));
+                }
+            }
+        }
+        Kind::Link => {}
+    }
+    more.sort_by_key(|r| r.0);
+    // Research rows that match as well as the built-in ones come first for `[@` and `/eq-`.
+    let research_first = tr.kind == Kind::Cite || tr.query.starts_with("eq");
+    let mut merged: Vec<(String, String, Pick)> = more.into_iter().map(|(_, a, b, c)| (a, b, c)).collect();
+    if research_first {
+        merged.append(&mut list);
+        list = merged;
+    } else {
+        list.append(&mut merged);
+    }
+    list.truncate(8);
+    list
 }
 
 /// A bookmark name for a heading: hidden (leading underscore), letters and digits only.
@@ -180,6 +275,12 @@ pub fn apply(g: &mut GlassApp, tr: &Trigger, pick: &Pick) -> Result<(), String> 
         Pick::Command { id, params: p } => {
             g.app.run(id, params(p))?;
         }
+        Pick::Cite(key) => {
+            let r = g.library_mut().find(key).cloned().ok_or_else(|| "that reference is no longer in the Library".to_string())?;
+            g.cite(&r);
+        }
+        Pick::Latex(latex) => g.insert_latex(latex),
+        Pick::Code(lang) => g.insert_code_block(*lang, ""),
         Pick::Heading { title, path } => {
             let here = g.app.session.sel.focus.clone();
             // Reuse a bookmark already on the heading, or add one at its start.
@@ -229,7 +330,10 @@ pub fn take_keys(g: &mut GlassApp, raw: &mut egui::RawInput) {
 /// After the page: open, drive and draw the menu.
 pub fn show(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
     let keys = std::mem::take(&mut g.glass.inline.keys);
-    let trigger = if g.glass.prefs.pro && !g.app.session.view.read_mode { detect(&g.app.session) } else { None };
+    let on = g.glass.prefs.pro || g.glass.prefs.research;
+    let trigger = if on && !g.app.session.view.read_mode { detect(&g.app.session) } else { None };
+    // `[@` is Research mode's.
+    let trigger = trigger.filter(|tr| tr.kind != Kind::Cite || g.glass.prefs.research);
     let Some(tr) = trigger.filter(|tr| g.glass.inline.dismissed.as_ref() != Some(&tr.start)) else {
         if trigger_gone(g) {
             g.glass.inline.dismissed = None;
@@ -238,7 +342,7 @@ pub fn show(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
         g.glass.inline.selected = 0;
         return;
     };
-    let list = rows(&g.app.session, &tr);
+    let list = rows_for(g, &tr);
     if list.is_empty() && tr.kind == Kind::Slash {
         g.glass.inline.open = false;
         return;
@@ -279,12 +383,18 @@ pub fn show(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
             let title = match tr.kind {
                 Kind::Link => "LINK TO",
                 Kind::Slash => "TURN INTO",
+                Kind::Cite => "CITE",
             };
             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
             ui.painter().text(pos2(r.min.x + 10.0, r.center().y), Align2::LEFT_CENTER, title, semibold(10.5), t.text_dim);
             if n == 0 {
                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::hover());
-                let msg = if tr.query.is_empty() { "Add headings to link to them." } else { "No heading matches." };
+                let msg = match tr.kind {
+                    Kind::Cite if tr.query.is_empty() => "Import references in Research › Library.",
+                    Kind::Cite => "No reference matches.",
+                    _ if tr.query.is_empty() => "Add headings to link to them.",
+                    _ => "No heading matches.",
+                };
                 ui.painter().text(pos2(r.min.x + 10.0, r.center().y), Align2::LEFT_CENTER, msg, regular(12.5), t.text_dim);
             }
             for (i, (label, hint, _)) in list.iter().enumerate() {
@@ -300,6 +410,7 @@ pub fn show(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
                 let icon = Rect::from_center_size(pos2(r.min.x + 20.0, r.center().y), vec2(24.0, 24.0));
                 let glyph = match tr.kind {
                     Kind::Link => "↗",
+                    Kind::Cite => "@",
                     Kind::Slash => label.get(..1).unwrap_or("·"),
                 };
                 ui.painter().rect_filled(icon, 6.0, if i == sel { t.on_accent.gamma_multiply(0.18) } else { t.fill });
@@ -397,6 +508,25 @@ mod tests {
         assert!(marks.iter().any(|(n, p)| n.starts_with("_wl_") && p.path == target.path));
         let here = g.app.session.doc.para(StoryRef::Body, &g.app.session.sel.focus.path).unwrap().plain_text();
         assert!(here.contains(&target.title) && !here.contains("[["), "{here}");
+    }
+
+    #[test]
+    fn research_mode_cites_with_at_and_inserts_saved_formulas() {
+        let mut g = glass("Shade helps [@sil");
+        g.glass.prefs.research = true;
+        g.library_mut().merge(crate::refs::parse_bibtex("@article{silva2024, author={Silva, Ana}, title={Shade}, year={2024}}"));
+        let tr = detect(&g.app.session).unwrap();
+        assert_eq!(tr.kind, Kind::Cite);
+        let list = rows_for(&mut g, &tr);
+        assert_eq!(list.first().map(|r| r.2.clone()), Some(Pick::Cite("silva2024".into())));
+        apply(&mut g, &tr, &list[0].2).unwrap();
+        assert_eq!(crate::research::doc_citations(&g.app.session.doc).len(), 1);
+        assert!(!g.app.session.doc.plain_text(StoryRef::Body).contains("[@"));
+        let mut g = glass("/eq-mat");
+        g.glass.prefs.research = true;
+        let tr = detect(&g.app.session).unwrap();
+        let list = rows_for(&mut g, &tr);
+        assert!(matches!(list.first().map(|r| &r.2), Some(Pick::Latex(_))), "{list:?}");
     }
 
     #[test]

@@ -12,7 +12,11 @@
 //! `{"pro": true}` turns Writer Pro on, `{"home": true}` shows Home, `{"template": "letter"}`
 //! opens a template in a tab and `{"run": "text.insert", "params": {…}}` runs a command;
 //! `{"prefs": {"glow": "Sentence"}}` merges Glass preferences, and `{"pointer": [x, y]}` moves
-//! the pointer (with `"button": "down" | "up"` it presses or releases there). The window is 1440×900 pt at 2× and opens the sample
+//! the pointer (with `"button": "down" | "up"` it presses or releases there). Research mode:
+//! `{"research": "library" | "check" | "formulas" | "graph" | "argument" | "data" | "code" |
+//! "submit" | "on"}` turns it on and shows a panel, `{"bib": "@article{…}"}` adds references to
+//! the Library, `{"cite": "key"}` cites one, `{"codeblock": "python", "code": "…"}` inserts a
+//! code block and `{"runcode": true}` runs them all and waits. The window is 1440×900 pt at 2× and opens the sample
 //! document unless the first line is `{"empty": true}`.
 
 use wordcraft_engine::Session;
@@ -128,6 +132,51 @@ fn main() {
         } else if let Some(tab) = l.get("navtab").and_then(|v| v.as_str()) {
             harness.state_mut().app.ui.nav_tab = tab.to_string();
             step_n(&mut harness, 2);
+        } else if let Some(v) = l.get("research").and_then(|v| v.as_str()) {
+            use wordcraft_ui_glass::research::RView;
+            let g = harness.state_mut();
+            g.set_research(true);
+            let view = match v {
+                "library" => Some(RView::Library),
+                "check" => Some(RView::Check),
+                "formulas" => Some(RView::Formulas),
+                "graph" => Some(RView::Graph),
+                "argument" => Some(RView::Argument),
+                "data" => Some(RView::Data),
+                "code" => Some(RView::Code),
+                "submit" => Some(RView::Submit),
+                _ => None,
+            };
+            g.glass.panel = view.map(wordcraft_ui_glass::Panel::Research);
+            step_n(&mut harness, 40);
+        } else if let Some(b) = l.get("bib").and_then(|v| v.as_str()) {
+            let refs = wordcraft_ui_glass::refs::parse_bibtex(b);
+            harness.state_mut().library_mut().merge(refs);
+            step_n(&mut harness, 2);
+        } else if let Some(k) = l.get("cite").and_then(|v| v.as_str()) {
+            let g = harness.state_mut();
+            if let Some(r) = g.library_mut().find(k).cloned() {
+                g.cite(&r);
+            }
+            step_n(&mut harness, 2);
+        } else if let Some(lang) = l.get("codeblock").and_then(|v| v.as_str()) {
+            let code = l.get("code").and_then(|v| v.as_str()).unwrap_or("");
+            if let Some(lang) = wordcraft_ui_glass::codeblocks::Lang::from_id(lang) {
+                harness.state_mut().insert_code_block(lang, code);
+            }
+            step_n(&mut harness, 2);
+        } else if l.get("runcode").is_some() {
+            harness.state_mut().run_all_code();
+            for _ in 0..300 {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                step(&mut harness);
+                let g = harness.state_mut();
+                let ids: Vec<u64> = wordcraft_ui_glass::codeblocks::code_blocks(&g.app.session.doc).iter().map(|c| c.id).collect();
+                if !ids.iter().any(|id| g.code_running(*id)) {
+                    break;
+                }
+            }
+            step_n(&mut harness, 4);
         } else if let Some(on) = l.get("pro").and_then(|v| v.as_bool()) {
             harness.state_mut().set_pro(on);
             step_n(&mut harness, 2);

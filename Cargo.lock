@@ -5297,6 +5297,7 @@ dependencies = [
  "wordcraft-formats",
  "wordcraft-geom",
  "wordcraft-ui-egui",
+ "zip",
 ]
 
 [[package]]

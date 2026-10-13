@@ -47,7 +47,7 @@ fn board_sections(g: &GlassApp, secs: &[Section]) -> Vec<usize> {
 }
 
 /// Move a section (with everything under it) `by` places among its siblings.
-fn move_section(g: &mut GlassApp, sec: &Section, by: i64) {
+pub(crate) fn move_section(g: &mut GlassApp, sec: &Section, by: i64) {
     let pos = Pos { story: StoryRef::Body, path: sec.path.clone(), off: 0 };
     if g.app.run("caret.set", json!({ "pos": pos })).is_err() {
         return;
@@ -330,6 +330,7 @@ pub fn side(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
         Some(Panel::Note(id)) => note(g, ui, t, id),
         Some(Panel::Inspector) => crate::scriv::inspector(g, ui, t),
         Some(Panel::Reference(kind)) => crate::scriv::reference(g, ui, t, kind),
+        Some(Panel::Research(v)) => crate::research::panel(g, ui, t, v),
         _ => scratchpad(g, ui, t),
     }
 }
@@ -384,11 +385,15 @@ fn scratchpad(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     hint(ui, t, "Trimmed scenes and cut lines wait here instead of being deleted, so you can bring them back any time.");
     ui.add_space(8.0);
     let pkey = key(&g.app.session);
+    if g.glass.prefs.research {
+        research_capture(g, ui, t, &pkey);
+        ui.add_space(8.0);
+    }
     let scraps = g.glass.projects.by_doc.get(&pkey).map(|p| p.scraps.clone()).unwrap_or_default();
     if scraps.is_empty() {
         hint(ui, t, "Nothing set aside yet.");
     }
-    let mut insert: Option<String> = None;
+    let mut insert: Option<(String, String)> = None;
     let mut remove: Option<usize> = None;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 8.0);
@@ -404,11 +409,17 @@ fn scratchpad(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
                 ui.label(job);
                 let when = s.date.get(..10).unwrap_or("");
                 let from = if s.from.is_empty() { String::new() } else { format!("From “{}” · ", s.from) };
-                ui.label(egui::RichText::new(format!("{from}{when}")).font(regular(11.0)).color(t.text_dim));
+                let kind = match s.kind.as_str() {
+                    "quote" => "Quote · ",
+                    "equation" => "Equation · ",
+                    "snippet" => "Snippet · ",
+                    _ => "",
+                };
+                ui.label(egui::RichText::new(format!("{kind}{from}{when}")).font(regular(11.0)).color(t.text_dim));
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing = vec2(6.0, 0.0);
                     if w::quiet_button(ui, t, "Insert at Cursor", None, 28.0).clicked() {
-                        insert = Some(s.text.clone());
+                        insert = Some((s.kind.clone(), s.text.clone()));
                     }
                     if w::quiet_button(ui, t, "Copy", None, 28.0).clicked() {
                         ui.ctx().copy_text(s.text.clone());
@@ -421,10 +432,15 @@ fn scratchpad(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
             ui.painter().set(bg, egui::Shape::rect_filled(resp.response.rect, egui::CornerRadius::same(14), t.fill));
         }
     });
-    if let Some(text) = insert
-        && let Err(e) = g.app.run("text.insert", json!({ "text": text }))
-    {
-        g.app.status(e);
+    match insert {
+        Some((kind, text)) if kind == "equation" => g.insert_latex(&text),
+        Some((kind, text)) => {
+            let text = if kind == "quote" { format!("“{}”", text.trim().trim_matches(['“', '”', '"'])) } else { text };
+            if let Err(e) = g.app.run("text.insert", json!({ "text": text })) {
+                g.app.status(e);
+            }
+        }
+        None => {}
     }
     if let Some(i) = remove
         && let Some(p) = g.glass.projects.by_doc.get_mut(&pkey)
@@ -432,6 +448,52 @@ fn scratchpad(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     {
         p.scraps.remove(i);
     }
+}
+
+/// Research mode: keep a snippet, a quote or an equation (LaTeX) in the Scratchpad.
+fn research_capture(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, pkey: &str) {
+    let id = egui::Id::new("glass_scrap_draft");
+    let kind_id = egui::Id::new("glass_scrap_kind");
+    let mut draft: String = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    let mut kind: usize = ui.data(|d| d.get_temp(kind_id)).unwrap_or(0);
+    let kinds = [("snippet", "Snippet"), ("quote", "Quote"), ("equation", "Equation")];
+    ui.horizontal(|ui| {
+        for (k, (_, name)) in kinds.iter().enumerate() {
+            if ui.selectable_label(k == kind, *name).clicked() {
+                kind = k;
+            }
+        }
+    });
+    let hint_text = match kind {
+        1 => "A quotation, with its source",
+        2 => "LaTeX, e.g. E = mc^2",
+        _ => "A note, a finding, an idea",
+    };
+    ui.add(egui::TextEdit::multiline(&mut draft).hint_text(hint_text).desired_rows(2).desired_width(ui.available_width()));
+    let mut keep: Option<(String, String)> = None;
+    ui.horizontal_wrapped(|ui| {
+        if w::quiet_button(ui, t, "Keep", None, 28.0).clicked() && !draft.trim().is_empty() {
+            keep = Some((kinds.get(kind).map_or("snippet", |k| k.0).to_string(), std::mem::take(&mut draft)));
+        }
+        if w::quiet_button(ui, t, "Keep Selection as Quote", None, 28.0).clicked() {
+            let sel = g.app.session.selected_text();
+            if sel.trim().is_empty() {
+                g.app.status("Select the words to quote first");
+            } else {
+                keep = Some(("quote".into(), sel));
+            }
+        }
+    });
+    if let Some((k, text)) = keep {
+        let secs = sections(&g.app.session);
+        let from = current_section(g, &secs).and_then(|i| secs.get(i)).map(|s| s.title.clone()).unwrap_or_default();
+        let date = wordcraft_engine::cmd::now_iso();
+        g.glass.projects.by_doc.entry(pkey.to_string()).or_default().add_snippet(&k, &text, &from, &date);
+    }
+    ui.data_mut(|d| {
+        d.insert_temp(id, draft);
+        d.insert_temp(kind_id, kind);
+    });
 }
 
 /// Analysis, recomputed only when the document changes.

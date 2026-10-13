@@ -230,6 +230,9 @@ pub fn show(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
         crate::scriv::section_boxes(g, &painter, &layout, &blocks, t, &mut |g, b| block_rects(g, &layout, b));
     }
     page_links(g, ui, &painter, &layout, &blocks, t);
+    if g.glass.prefs.research {
+        crate::research::on_page(g, ui, &painter, &mut |g, a, b| range_rects(g, &layout, a, b), t);
+    }
     pulse(g, ui, &painter, &layout, t);
     if g.glass.prefs.handles {
         handles(g, ui, &painter, &layout, &pages, clip, t);

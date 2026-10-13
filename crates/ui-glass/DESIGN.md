@@ -249,6 +249,25 @@ the preferences (they are not written into the .docx).
   thread only). Synonyms come from MyThes thesauri (`proof::thes`) found in the dictionaries
   folders and LibreOffice's dictionary extensions; English falls back to a small built-in list.
 
+## Research mode
+
+- A mode like Writer Pro (`prefs.research`), with its own toolbar pill, Home card and **Research**
+  ribbon tab (`ribbon::RESEARCH`, Glass's own big buttons). Its panels are `Panel::Research(RView)`
+  in the side dock; the Binder and Scratchpad are shared with Writer Pro.
+- `src/refs.rs`: the reference model and readers (BibTeX, RIS, CSL-JSON, EndNote XML), the
+  Library (`Documents/WordCraft/Library/library.json`, linked files, Zotero's local API).
+  Citations are WordCraft's own `CITATION` fields, so Word and the bibliography styles work.
+- `src/research.rs`: Library panel, citation check (cached per revision), claim marks and hover
+  cards drawn by `overlay::show`.
+- `src/formulas.rs`: the formula library and typing shortcuts (once per revision, after the
+  app's own keys). `src/figures.rs`: SEQ captions renumbered when out of order; tables and charts
+  linked to files through a `wcplus-data:` tag in their alt text.
+- `src/codeblocks.rs`: a code block is a one-cell table tagged `wcplus-code:<lang>#<id>`, its
+  output another tagged `wcplus-output:<id>`; runs happen on a thread with a timeout.
+- `src/graphs.rs` (citation graph, argument map), `src/submit.rs` (blind copy, LaTeX zip,
+  submission PDF, compile), `src/reviews.rs` (response log and letter), `src/academic.rs`
+  (templates).
+
 ## Known limits
 
 - Versions live in memory with the document and are lost when it closes.
@@ -259,9 +278,12 @@ the preferences (they are not written into the .docx).
   are private to `ui-egui`); the layout guides are shown, but objects don't snap to them yet.
 - Collapsing headings happens inside the canvas, so it isn't animated yet.
 - Block handles move top-level paragraphs; paragraphs in table cells keep their own order.
-- Not yet in Writer Pro: an AI continuity checker, compiling several
-  documents into one PDF, citation import (BibTeX/RIS, EndNote) beyond the classic Zotero tab,
-  hover previews of cross-references, institutional template checks, and a reviewer response log.
+- Not yet in Writer Pro: an AI continuity checker and institutional template checks.
+- Research mode: Mendeley and EndNote come in through their export files (RIS, BibTeX, EndNote
+  XML); Zotero's sync needs Zotero 7 with "Allow other applications to communicate" on. Code
+  runs with the interpreters on the computer (MATLAB code runs in Octave when MATLAB isn't
+  installed). Linked Excel files are read as their first sheet. Argument roles come from cue
+  words and can be set by hand. The LaTeX export keeps charts as their alt text.
 - Databases have no formulas, relations or rollups yet, and no sharing; a record's page is a
   separate `.docx`, not stored inside the database.
 - Spelling in languages other than English and Polish needs the Mac's spell checker; on Linux

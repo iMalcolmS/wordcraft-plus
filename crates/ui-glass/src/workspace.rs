@@ -22,6 +22,24 @@ pub enum PickFor {
     ImportInto(u64),
     /// Write this CSV there.
     SaveCsv(String),
+    /// Research: import references into the library.
+    ImportRefs,
+    /// Research: link a references file the library follows.
+    LinkRefs,
+    /// Write this text there (a .bib, a response letter).
+    SaveText(String),
+    /// Write these bytes there (a LaTeX package).
+    SaveBytes(Vec<u8>),
+    /// Research: a table or chart linked to a data file.
+    LinkTable,
+    LinkChart,
+    /// Research: the submission PDF, and the compiled PDF.
+    SubmissionPdf,
+    CompilePdf,
+    /// Research: a document to add to the compilation.
+    AddToCompile,
+    /// Research: reviewer comments to add to the response log.
+    ImportReviews,
 }
 
 /// A Glass file dialog waiting for its answer.
@@ -292,10 +310,26 @@ impl GlassApp {
                     Err(e) => self.app.status(format!("Couldn't import: {e}")),
                 }
             }
-            PickFor::SaveCsv(csv) => match std::fs::write(path, csv) {
+            PickFor::SaveCsv(csv) | PickFor::SaveText(csv) => match std::fs::write(path, csv) {
                 Ok(()) => self.app.status(format!("Exported to {path}")),
                 Err(e) => self.app.status(format!("Couldn't export: {e}")),
             },
+            PickFor::SaveBytes(bytes) => match std::fs::write(path, bytes) {
+                Ok(()) => self.app.status(format!("Saved {path}")),
+                Err(e) => self.app.status(format!("Couldn't save: {e}")),
+            },
+            PickFor::ImportRefs => self.import_refs(Path::new(path), false),
+            PickFor::LinkRefs => self.import_refs(Path::new(path), true),
+            PickFor::LinkTable => self.link_table(path),
+            PickFor::LinkChart => self.link_chart(path),
+            PickFor::SubmissionPdf => self.submission_pdf(path),
+            PickFor::CompilePdf => self.compile_pdf(path),
+            PickFor::AddToCompile => {
+                if self.glass.submit.files.len() < 100 {
+                    self.glass.submit.files.push(PathBuf::from(path));
+                }
+            }
+            PickFor::ImportReviews => self.import_reviews(Path::new(path)),
         }
     }
 

@@ -217,6 +217,17 @@ pub fn show(g: &mut GlassApp, ctx: &egui::Context, t: &Tokens) {
                         .font(regular(11.5))
                         .color(t.text_dim),
                 );
+                row(ui, t, "Research", |ui| {
+                    let mut on = g.glass.prefs.research;
+                    if w::switch(ui, t, &mut on).changed() {
+                        g.set_research(on);
+                    }
+                });
+                ui.label(
+                    egui::RichText::new("Library, citations, hover cards, LaTeX, formulas, linked data, code blocks, submission tools.")
+                        .font(regular(11.5))
+                        .color(t.text_dim),
+                );
             });
             ui.painter().set(bg, popover_shape(inner.response.rect, 22, t));
         });

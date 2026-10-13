@@ -12,15 +12,24 @@
 //! `DESIGN.md` for the design rules.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod academic;
 pub mod analysis;
+pub mod codeblocks;
 pub mod db;
 pub mod db_view;
 pub mod dict;
 pub mod docs;
+pub mod figures;
+pub mod formulas;
 pub mod goals;
+pub mod graphs;
 pub mod inline;
 pub mod project;
+pub mod refs;
+pub mod research;
+pub mod reviews;
 pub mod ribbon;
+pub mod submit;
 pub mod templates;
 pub mod tokens;
 
@@ -56,6 +65,11 @@ pub const AUTO_EVERY_SECS: f64 = 600.0;
 /// The engine keeps at most this many versions; automatic ones make room for snapshots.
 const MAX_VERSIONS: usize = 50;
 
+/// The top-level body block a paragraph path is in.
+pub(crate) fn top_of(p: &wordcraft_doc::Path) -> usize {
+    p.0.first().copied().unwrap_or(0) as usize
+}
+
 /// The side panel on the right.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Panel {
@@ -73,6 +87,8 @@ pub enum Panel {
     Reference(scriv::RefView),
     /// Dictionary & Thesaurus (for everyone; it shares the versions panel's place).
     Dictionary,
+    /// Research mode's panels (Library, Citation Check, Formulas…).
+    Research(research::RView),
 }
 
 impl Panel {
@@ -132,6 +148,21 @@ pub struct GlassPrefs {
     pub scrivenings: bool,
     /// The split shows below the page instead of beside it.
     pub split_below: bool,
+    /// Research mode's tools are on.
+    pub research: bool,
+    /// Research mode: a card with the reference when the pointer rests on a citation.
+    pub hover_cards: bool,
+    /// Research mode: dotted marks under sentences that seem to need a citation.
+    pub cite_marks: bool,
+    /// Research mode: the personal formula library (`/eq-name`).
+    pub formulas: Vec<formulas::Formula>,
+    pub formulas_seeded: bool,
+    /// Research mode: `$…$` typed in text becomes an equation.
+    pub latex_shortcuts: bool,
+    /// Research mode: `**bold**`, `*italic*`, `` `code` ``, `# ` headings and `> ` quotes as typed.
+    pub markdown_shortcuts: bool,
+    /// Research mode: linked tables and charts follow their files.
+    pub auto_refresh_data: bool,
 }
 
 impl Default for GlassPrefs {
@@ -150,6 +181,14 @@ impl Default for GlassPrefs {
             grid: false,
             scrivenings: true,
             split_below: false,
+            research: false,
+            hover_cards: true,
+            cite_marks: false,
+            formulas: Vec::new(),
+            formulas_seeded: false,
+            latex_shortcuts: true,
+            markdown_shortcuts: true,
+            auto_refresh_data: true,
         }
     }
 }
@@ -224,6 +263,19 @@ pub struct GlassState {
     pub labels_open: bool,
     /// Dictionary & Thesaurus.
     pub dict: dict::Dict,
+    /// Research mode: the library, the citation check and hover cards.
+    pub research: research::Research,
+    /// Research mode: the (document, revision) typing shortcuts last looked at.
+    pub(crate) shortcuts_seen: (u64, u64),
+    /// Research mode: linked data files' modification times, and when they were last checked.
+    pub(crate) data_mtimes: std::collections::HashMap<String, u64>,
+    pub(crate) figures_at: f64,
+    /// Research mode: code blocks running, and the notebook panel's draft.
+    pub code: codeblocks::Code,
+    /// Research mode: the submission panel (blind review, export, compile).
+    pub submit: submit::Submit,
+    /// Research mode: the citation graph's and argument map's layout.
+    pub graphs: graphs::Graphs,
 }
 
 /// The Glass application: the WordCraft app plus the Glass chrome and features.
@@ -288,7 +340,7 @@ impl GlassApp {
         if matches!(self.glass.doc_view, View::Corkboard | View::Outliner) {
             self.glass.doc_view = View::Page;
         }
-        if self.glass.panel.is_some_and(|p| !p.is_versions()) {
+        if self.glass.panel.is_some_and(|p| !p.is_versions() && !(self.glass.prefs.research && matches!(p, Panel::Research(_) | Panel::Scratchpad))) {
             self.glass.panel = None;
         }
         if self.app.ui.tab == "Writer" {
@@ -424,6 +476,14 @@ impl GlassApp {
         self.auto_version(now);
         self.poll_pick();
         self.save_databases(false);
+        if self.glass.prefs.research {
+            self.research_tick();
+            self.code_tick();
+            if self.glass.view == View::Page {
+                formulas::typing_shortcuts(self);
+                self.figures_tick();
+            }
+        }
         if let Some(sp) = self.glass.sprint
             && now - sp.started >= sp.secs
         {
@@ -504,7 +564,8 @@ impl GlassApp {
         }
         let versions = self.glass.panel.is_some_and(Panel::is_versions);
         let below = self.glass.prefs.split_below && matches!(self.glass.panel, Some(Panel::Reference(_))) && self.glass.prefs.pro;
-        let side = self.glass.panel.is_some_and(|p| !p.is_versions()) && self.glass.prefs.pro && !below;
+        let research = self.glass.prefs.research;
+        let side = self.glass.panel.is_some_and(|p| !p.is_versions()) && (self.glass.prefs.pro || research) && !below;
         let nav = self.app.session.view.nav_pane;
         let pro = self.glass.prefs.pro;
         if !focus {
@@ -539,8 +600,9 @@ impl GlassApp {
         }
         let fmt = format::wanted(self);
         dock::show(self, ui, t, &dock::FORMAT, fmt && !focus, area, |g, ui| format::panel(g, ui, t));
-        dock::show(self, ui, t, &dock::BINDER, pro && self.glass.prefs.binder && !focus, area, |g, ui| scriv::binder(g, ui, t));
-        dock::show(self, ui, t, &dock::NAVIGATION, nav && !focus && !(pro && self.glass.prefs.binder), area, |g, ui| panels::navigation(g, ui, t));
+        let binder = (pro || research) && self.glass.prefs.binder;
+        dock::show(self, ui, t, &dock::BINDER, binder && !focus, area, |g, ui| scriv::binder(g, ui, t));
+        dock::show(self, ui, t, &dock::NAVIGATION, nav && !focus && !binder, area, |g, ui| panels::navigation(g, ui, t));
         let view = self.glass.view;
         let typewriter = ctx.animate_bool_with_time(egui::Id::new("glass_typewriter_fade"), self.glass.prefs.typewriter && view == View::Page, 0.25);
         // A document or view switch fades the new content in.
