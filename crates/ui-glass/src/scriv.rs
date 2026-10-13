@@ -51,6 +51,14 @@ pub enum Icon {
     Place,
     Research,
     Scratch,
+    /// Research mode's binder.
+    Figure,
+    Table,
+    Equation,
+    Code,
+    Source,
+    Review,
+    Missing,
 }
 
 pub fn icon(p: &Painter, r: Rect, kind: Icon, t: &Tokens) {
@@ -109,6 +117,71 @@ pub fn icon(p: &Painter, r: Rect, kind: Icon, t: &Tokens) {
             p.rect_filled(book, 1.5, Color32::from_rgb(0xD9, 0x8E, 0x5B));
             p.rect_filled(Rect::from_min_size(book.min, vec2(2.5, book.height())), 1.0, Color32::from_rgb(0x9A, 0x55, 0x2A));
             p.line_segment([pos2(book.min.x + 5.0, book.min.y + 4.0), pos2(book.max.x - 2.0, book.min.y + 4.0)], Stroke::new(1.0, Color32::WHITE));
+        }
+        Icon::Figure => {
+            let f = r.shrink2(vec2(0.0, 2.0));
+            p.rect_filled(f, 2.0, Color32::from_rgb(0xCF, 0xE6, 0xF7));
+            p.rect_stroke(f, 2.0, Stroke::new(1.0, Color32::from_rgb(0x3A, 0x86, 0xC8)), egui::StrokeKind::Inside);
+            p.add(egui::Shape::convex_polygon(
+                vec![pos2(f.min.x + 1.5, f.max.y - 1.5), pos2(f.min.x + 6.0, f.min.y + 4.0), pos2(f.min.x + 10.0, f.max.y - 1.5)],
+                Color32::from_rgb(0x3A, 0x86, 0xC8),
+                Stroke::NONE,
+            ));
+            p.circle_filled(pos2(f.max.x - 3.5, f.min.y + 3.5), 1.6, Color32::from_rgb(0xE8, 0xA3, 0x3D));
+        }
+        Icon::Table => {
+            let f = r.shrink(0.5);
+            p.rect_filled(f, 1.5, Color32::WHITE);
+            p.rect_filled(Rect::from_min_size(f.min, vec2(f.width(), 3.5)), 1.5, Color32::from_rgb(0x44, 0x83, 0x61));
+            let st = Stroke::new(0.8, Color32::from_gray(150));
+            p.rect_stroke(f, 1.5, st, egui::StrokeKind::Inside);
+            p.line_segment([pos2(f.center().x, f.min.y), pos2(f.center().x, f.max.y)], st);
+            p.line_segment([pos2(f.min.x, f.center().y + 1.5), pos2(f.max.x, f.center().y + 1.5)], st);
+        }
+        Icon::Equation => {
+            p.rect_filled(r.shrink(0.5), 3.0, Color32::from_rgb(0xEC, 0xE4, 0xF7));
+            p.text(r.center(), Align2::CENTER_CENTER, "π", medium(11.0), Color32::from_rgb(0x7A, 0x4F, 0xB8));
+        }
+        Icon::Code => {
+            p.rect_filled(r.shrink(0.5), 3.0, Color32::from_rgb(0x2B, 0x2F, 0x36));
+            let c = r.center();
+            let st = Stroke::new(1.2, Color32::from_rgb(0x9C, 0xD6, 0x8F));
+            p.line_segment([pos2(c.x - 1.5, c.y - 3.0), pos2(c.x - 4.5, c.y)], st);
+            p.line_segment([pos2(c.x - 4.5, c.y), pos2(c.x - 1.5, c.y + 3.0)], st);
+            p.line_segment([pos2(c.x + 1.5, c.y - 3.0), pos2(c.x + 4.5, c.y)], st);
+            p.line_segment([pos2(c.x + 4.5, c.y), pos2(c.x + 1.5, c.y + 3.0)], st);
+        }
+        Icon::Source => {
+            let book = r.shrink(1.0);
+            p.rect_filled(book, 1.5, Color32::from_rgb(0x5B, 0x8F, 0xD9));
+            p.rect_filled(Rect::from_min_size(book.min, vec2(2.5, book.height())), 1.0, Color32::from_rgb(0x2A, 0x55, 0x9A));
+            p.text(pos2(book.center().x + 1.0, book.center().y), Align2::CENTER_CENTER, "“", medium(10.0), Color32::WHITE);
+        }
+        Icon::Review => {
+            let b = Rect::from_min_max(pos2(r.min.x, r.min.y + 1.0), pos2(r.max.x, r.max.y - 3.0));
+            p.rect_filled(b, 3.0, Color32::from_rgb(0xF2, 0xC2, 0x7B));
+            p.add(egui::Shape::convex_polygon(
+                vec![pos2(b.min.x + 3.0, b.max.y), pos2(b.min.x + 7.0, b.max.y), pos2(b.min.x + 3.0, r.max.y)],
+                Color32::from_rgb(0xF2, 0xC2, 0x7B),
+                Stroke::NONE,
+            ));
+            for k in 0..2 {
+                let y = b.min.y + 3.5 + k as f32 * 3.0;
+                p.line_segment([pos2(b.min.x + 3.0, y), pos2(b.max.x - 3.0, y)], Stroke::new(0.9, Color32::from_rgb(0x8A, 0x55, 0x1E)));
+            }
+        }
+        Icon::Missing => {
+            let page = Rect::from_min_max(pos2(r.min.x + 2.0, r.min.y), pos2(r.max.x - 2.0, r.max.y));
+            let st = Stroke::new(1.0, t.text_dim.gamma_multiply(0.7));
+            let mut y = page.min.y;
+            while y < page.max.y {
+                p.line_segment([pos2(page.min.x, y), pos2(page.min.x, (y + 2.0).min(page.max.y))], st);
+                p.line_segment([pos2(page.max.x, y), pos2(page.max.x, (y + 2.0).min(page.max.y))], st);
+                y += 3.5;
+            }
+            let c = page.center();
+            p.line_segment([pos2(c.x - 2.5, c.y), pos2(c.x + 2.5, c.y)], st);
+            p.line_segment([pos2(c.x, c.y - 2.5), pos2(c.x, c.y + 2.5)], st);
         }
         Icon::Scratch => {
             let can = Rect::from_min_max(pos2(r.min.x + 2.5, r.min.y + 3.5), pos2(r.max.x - 2.5, r.max.y));
@@ -549,7 +622,7 @@ pub fn reference(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, view: RefView) {
     }
 }
 
-fn kind_icon(k: NoteKind) -> Icon {
+pub(crate) fn kind_icon(k: NoteKind) -> Icon {
     match k {
         NoteKind::Character => Icon::Character,
         NoteKind::Place => Icon::Place,
@@ -664,7 +737,16 @@ fn document_view(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, uid: Option<u64>) {
 // ---------------------------------------------------------------------------------------------
 // The Binder.
 
-fn row(ui: &mut Ui, t: &Tokens, depth: usize, kind: Icon, text: &str, fold: Option<bool>, on: bool, dot: Option<Color32>) -> (egui::Response, bool) {
+pub(crate) fn row(
+    ui: &mut Ui,
+    t: &Tokens,
+    depth: usize,
+    kind: Icon,
+    text: &str,
+    fold: Option<bool>,
+    on: bool,
+    dot: Option<Color32>,
+) -> (egui::Response, bool) {
     row_sensing(ui, t, depth, kind, text, fold, on, dot, Sense::click())
 }
 
@@ -745,9 +827,254 @@ pub(crate) fn sibling_offset(secs: &[crate::project::Section], from: usize, to: 
     Some(b - a)
 }
 
+/// A small count or note at the right end of a Binder row.
+pub(crate) fn count_badge(ui: &Ui, t: &Tokens, r: Rect, text: &str) {
+    ui.painter().text(pos2(r.max.x - 8.0, r.center().y), Align2::RIGHT_CENTER, text, regular(10.5), t.text_dim);
+}
+
+/// The parts a research paper usually has: (English name, Portuguese name, words that find it).
+const PAPER_PARTS: [(&str, &str, &[&str]); 7] = [
+    ("Abstract", "Resumo", &["abstract", "resumo", "summary"]),
+    ("Introduction", "Introdução", &["introduction", "introdução", "introducao", "background"]),
+    ("Methods", "Metodologia", &["method", "materials", "metodologia", "métodos", "metodos", "procedure"]),
+    ("Results", "Resultados", &["result", "resultados", "findings"]),
+    ("Discussion", "Discussão", &["discussion", "discussão", "discussao"]),
+    ("Conclusion", "Conclusão", &["conclusion", "conclus", "considerações finais", "consideracoes finais", "summary and"]),
+    ("References", "Referências", &["references", "bibliography", "referências", "referencias", "bibliografia", "works cited"]),
+];
+
+/// Which usual parts of a paper the document lacks (`Abstract` also counts as a bold opening
+/// paragraph), and whether its headings are in Portuguese.
+pub(crate) fn paper_gaps(doc_text: &str, secs: &[Section]) -> (Vec<usize>, bool) {
+    let titles: Vec<String> = secs.iter().map(|s| s.title.to_lowercase()).collect();
+    let pt = titles
+        .iter()
+        .any(|t| ["introdução", "metodologia", "resultados", "discussão", "conclusão", "referências", "considerações"].iter().any(|w| t.contains(w)));
+    let lower = doc_text.to_lowercase();
+    let mut gaps = Vec::new();
+    for (k, (_, _, words)) in PAPER_PARTS.iter().enumerate() {
+        let found = titles.iter().any(|t| words.iter().any(|w| t.contains(w)))
+            || (k == 0
+                && lower.lines().any(|l| {
+                    let l = l.trim_start();
+                    l.starts_with("abstract") || l.starts_with("resumo")
+                }));
+        if !found {
+            gaps.push(k);
+        }
+    }
+    (gaps, pt)
+}
+
+/// Rows for the usual parts this paper lacks; clicking one adds its heading (before References).
+fn missing_parts(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, secs: &[Section]) {
+    if secs.len() < 2 {
+        return;
+    }
+    let (gaps, pt) = paper_gaps(&g.app.session.doc.plain_text(StoryRef::Body), secs);
+    if gaps.is_empty() {
+        return;
+    }
+    // Folded by default: one quiet row saying how many usual parts are missing.
+    let open_key = "\u{0}r-missing-open";
+    let open = g.glass.scriv.folded.contains(open_key);
+    let summary = if pt { format!("{} partes usuais faltando", gaps.len()) } else { format!("{} usual parts missing", gaps.len()) };
+    let (resp, tog) = row(ui, t, 1, Icon::Missing, &summary, Some(open), false, None);
+    if tog || resp.clicked() {
+        toggle_fold(g, open_key);
+    }
+    if !open {
+        return;
+    }
+    let mut add: Option<usize> = None;
+    for k in gaps {
+        let Some((en, pt_name, _)) = PAPER_PARTS.get(k) else { continue };
+        let name = if pt { *pt_name } else { *en };
+        let (resp, _) = row(ui, t, 2, Icon::Missing, name, None, false, None);
+        count_badge(ui, t, resp.rect, "add");
+        if resp.on_hover_text(format!("{name} is missing: click to add its heading")).clicked() {
+            add = Some(k);
+        }
+    }
+    if let Some(k) = add
+        && let Some((en, pt_name, _)) = PAPER_PARTS.get(k)
+    {
+        let name = if pt { *pt_name } else { *en };
+        let refs = PAPER_PARTS.get(6).map(|p| p.2).unwrap_or(&[]);
+        let before = secs
+            .iter()
+            .find(|s| {
+                let l = s.title.to_lowercase();
+                refs.iter().any(|w| l.contains(w))
+            })
+            .map(|s| s.path.clone());
+        let r = match before.filter(|_| k != 6) {
+            Some(path) => {
+                g.app.session.sel = wordcraft_engine::Selection::caret(Pos::new(StoryRef::Body, path, 0));
+                g.app.run("text.insert", json!({"text": name})).and_then(|_| g.app.run("text.newParagraph", json!({})))
+            }
+            None => {
+                let _ = g.app.run("caret.docEnd", json!({}));
+                let empty = g.app.session.doc.para_at(&g.app.session.sel.focus).is_some_and(|p| p.text.is_empty());
+                let r = if empty { Ok(json!({})) } else { g.app.run("text.newParagraph", json!({})) };
+                r.and_then(|_| g.app.run("text.insert", json!({"text": name}))).and_then(|_| g.app.run("para.heading1", json!({})))
+            }
+        };
+        match r {
+            Ok(_) => g.app.status(format!("{name} added")),
+            Err(e) => g.app.status(e),
+        }
+    }
+}
+
+/// The manuscript's sections as a tree: click to go, drag to reorder among siblings. In
+/// Research mode each shows its word count, and the parts a paper usually has but this one lacks
+/// are offered below.
+pub(crate) fn manuscript(g: &mut GlassApp, ui: &mut Ui, t: &Tokens, research: bool) {
+    let secs = sections(&g.app.session);
+    let cur = current(g, &secs);
+    let pkey = key(&g.app.session);
+    let base = secs.iter().map(|s| s.level).min().unwrap_or(0);
+    // Manuscript.
+    let man_open = !g.glass.scriv.folded.contains("\u{0}manuscript");
+    let total: usize = secs.iter().map(|s| s.words).sum();
+    let (mresp, tog) = row(ui, t, 0, Icon::Manuscript, if research { "Paper" } else { "Manuscript" }, Some(man_open), false, None);
+    if research {
+        count_badge(ui, t, mresp.rect, &format!("{total} words"));
+    }
+    if tog {
+        toggle_fold(g, "\u{0}manuscript");
+    }
+    let mut go: Option<usize> = None;
+    let mut action: Option<(usize, u8)> = None;
+    // Sections can be dragged to a new place among their siblings.
+    let mut shown_rows: Vec<(usize, Rect)> = Vec::new();
+    let mut drag_from: Option<usize> = None;
+    let mut dropped = false;
+    if man_open {
+        let mut hidden_below: Option<u8> = None;
+        for (i, s) in secs.iter().enumerate() {
+            if let Some(l) = hidden_below {
+                if s.level > l {
+                    continue;
+                }
+                hidden_below = None;
+            }
+            let has_children = secs.get(i + 1).is_some_and(|n| n.level > s.level);
+            let open = !g.glass.scriv.folded.contains(&s.title);
+            let card = g.glass.projects.by_doc.get(&pkey).map(|p| p.card(&s.title)).unwrap_or_default();
+            let tag = g.glass.projects.by_doc.get(&pkey).and_then(|p| p.card_tag(&card));
+            let depth = 1 + usize::from(s.level.saturating_sub(base).min(5));
+            let (resp, tog) = row_sensing(
+                ui,
+                t,
+                depth,
+                if has_children { Icon::Folder } else { Icon::Doc },
+                &s.title,
+                has_children.then_some(open),
+                cur == Some(i) && g.glass.view == View::Page,
+                if tag.is_some() || research { None } else { (card.status != Status::ToDo).then(|| status_color(card.status, t)) },
+                Sense::click_and_drag(),
+            );
+            if research && tag.is_none() {
+                count_badge(ui, t, resp.rect, &s.words.to_string());
+            }
+            shown_rows.push((i, resp.rect));
+            if resp.dragged() || resp.drag_stopped() {
+                drag_from = Some(i);
+                dropped |= resp.drag_stopped();
+            }
+            if let Some(tag) = &tag {
+                crate::labels::mark(ui.painter(), Rect::from_center_size(pos2(resp.rect.max.x - 12.0, resp.rect.center().y), vec2(12.0, 12.0)), tag);
+            }
+            if tog {
+                toggle_fold(g, &s.title);
+            } else if resp.clicked() {
+                if ui.input(|i| i.modifiers.alt) {
+                    g.glass.scriv.quick = Some(s.path.clone());
+                } else {
+                    go = Some(i);
+                }
+            }
+            resp.context_menu(|ui| {
+                if ui.button("Go to Section").clicked() {
+                    action = Some((i, 0));
+                    ui.close();
+                }
+                if ui.button("Open in Quick Reference").clicked() {
+                    action = Some((i, 1));
+                    ui.close();
+                }
+                if ui.button("Show in Inspector").clicked() {
+                    action = Some((i, 2));
+                    ui.close();
+                }
+            });
+            if has_children && !open {
+                hidden_below = Some(s.level);
+            }
+        }
+        if secs.is_empty() {
+            let hint = if research { "      Headings become the paper's sections here." } else { "      Headings become chapters and scenes here." };
+            ui.label(egui::RichText::new(hint).font(regular(11.5)).color(t.text_dim));
+        }
+        if research {
+            missing_parts(g, ui, t, &secs);
+        }
+        if let Some(from) = drag_from {
+            let pointer = ui.ctx().pointer_interact_pos();
+            let over = pointer.and_then(|p| shown_rows.iter().find(|(_, r)| p.y >= r.min.y && p.y < r.max.y).map(|(j, _)| *j));
+            let to = over.and_then(|j| drop_target(&secs, from, j));
+            // A line where it will land, and the dragged row's title under the pointer.
+            if let (Some(to), Some(p)) = (to, pointer)
+                && let Some((_, r)) = shown_rows.iter().find(|(j, _)| *j == to)
+            {
+                let y = if to > from { r.max.y } else { r.min.y };
+                ui.painter().hline(r.min.x + 6.0..=r.max.x - 6.0, y, Stroke::new(2.0, t.accent));
+                if let Some(sec) = secs.get(from) {
+                    let layer = ui.painter().clone().with_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("binder_drag")));
+                    let label: String = sec.title.chars().take(30).collect();
+                    let galley = layer.layout_no_wrap(label, medium(12.0), t.text);
+                    let br = Rect::from_min_size(p + vec2(12.0, -10.0), galley.size() + vec2(16.0, 8.0));
+                    layer.add(crate::tokens::popover_shape(br, 8, t));
+                    layer.galley(br.min + vec2(8.0, 4.0), galley, t.text);
+                }
+            }
+            if dropped
+                && let Some(to) = to
+                && to != from
+            {
+                let by = sibling_offset(&secs, from, to);
+                if let (Some(sec), Some(by)) = (secs.get(from).cloned(), by) {
+                    crate::pro::move_section(g, &sec, by);
+                }
+            } else if dropped && over.is_some() && to.is_none() {
+                g.app.status("Sections move among the ones at the same level: drag it beside a sibling");
+            }
+        }
+    }
+    match action {
+        Some((i, 1)) => g.glass.scriv.quick = secs.get(i).map(|s| s.path.clone()),
+        Some((i, 2)) => {
+            go = Some(i);
+            g.glass.panel = Some(Panel::Inspector);
+        }
+        Some((i, _)) => go = Some(i),
+        None => {}
+    }
+    if let Some(s) = go.and_then(|i| secs.get(i)) {
+        go_to(g, s);
+    }
+}
+
 /// The Binder: Manuscript (sections as folders and documents), open documents, Characters,
 /// Places, Research and the Scratchpad, each with its icon.
 pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
+    // Research mode has its own binder (unless Writer Pro's tab is showing).
+    if g.glass.prefs.research && !(g.glass.prefs.pro && g.app.ui.tab == "Writer") {
+        crate::rbinder::show(g, ui, t);
+        return;
+    }
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("Binder").font(semibold(15.0)).color(t.text));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -759,133 +1086,8 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     ui.add_space(6.0);
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         ui.spacing_mut().item_spacing = vec2(0.0, 1.0);
-        let secs = sections(&g.app.session);
-        let cur = current(g, &secs);
+        manuscript(g, ui, t, false);
         let pkey = key(&g.app.session);
-        let base = secs.iter().map(|s| s.level).min().unwrap_or(0);
-        // Manuscript.
-        let man_open = !g.glass.scriv.folded.contains("\u{0}manuscript");
-        let (_, tog) = row(ui, t, 0, Icon::Manuscript, "Manuscript", Some(man_open), false, None);
-        if tog {
-            toggle_fold(g, "\u{0}manuscript");
-        }
-        let mut go: Option<usize> = None;
-        let mut action: Option<(usize, u8)> = None;
-        // Sections can be dragged to a new place among their siblings.
-        let mut shown_rows: Vec<(usize, Rect)> = Vec::new();
-        let mut drag_from: Option<usize> = None;
-        let mut dropped = false;
-        if man_open {
-            let mut hidden_below: Option<u8> = None;
-            for (i, s) in secs.iter().enumerate() {
-                if let Some(l) = hidden_below {
-                    if s.level > l {
-                        continue;
-                    }
-                    hidden_below = None;
-                }
-                let has_children = secs.get(i + 1).is_some_and(|n| n.level > s.level);
-                let open = !g.glass.scriv.folded.contains(&s.title);
-                let card = g.glass.projects.by_doc.get(&pkey).map(|p| p.card(&s.title)).unwrap_or_default();
-                let tag = g.glass.projects.by_doc.get(&pkey).and_then(|p| p.card_tag(&card));
-                let depth = 1 + usize::from(s.level.saturating_sub(base).min(5));
-                let (resp, tog) = row_sensing(
-                    ui,
-                    t,
-                    depth,
-                    if has_children { Icon::Folder } else { Icon::Doc },
-                    &s.title,
-                    has_children.then_some(open),
-                    cur == Some(i) && g.glass.view == View::Page,
-                    if tag.is_some() { None } else { (card.status != Status::ToDo).then(|| status_color(card.status, t)) },
-                    Sense::click_and_drag(),
-                );
-                shown_rows.push((i, resp.rect));
-                if resp.dragged() || resp.drag_stopped() {
-                    drag_from = Some(i);
-                    dropped |= resp.drag_stopped();
-                }
-                if let Some(tag) = &tag {
-                    crate::labels::mark(
-                        ui.painter(),
-                        Rect::from_center_size(pos2(resp.rect.max.x - 12.0, resp.rect.center().y), vec2(12.0, 12.0)),
-                        tag,
-                    );
-                }
-                if tog {
-                    toggle_fold(g, &s.title);
-                } else if resp.clicked() {
-                    if ui.input(|i| i.modifiers.alt) {
-                        g.glass.scriv.quick = Some(s.path.clone());
-                    } else {
-                        go = Some(i);
-                    }
-                }
-                resp.context_menu(|ui| {
-                    if ui.button("Go to Section").clicked() {
-                        action = Some((i, 0));
-                        ui.close();
-                    }
-                    if ui.button("Open in Quick Reference").clicked() {
-                        action = Some((i, 1));
-                        ui.close();
-                    }
-                    if ui.button("Show in Inspector").clicked() {
-                        action = Some((i, 2));
-                        ui.close();
-                    }
-                });
-                if has_children && !open {
-                    hidden_below = Some(s.level);
-                }
-            }
-            if secs.is_empty() {
-                ui.label(egui::RichText::new("      Headings become chapters and scenes here.").font(regular(11.5)).color(t.text_dim));
-            }
-            if let Some(from) = drag_from {
-                let pointer = ui.ctx().pointer_interact_pos();
-                let over = pointer.and_then(|p| shown_rows.iter().find(|(_, r)| p.y >= r.min.y && p.y < r.max.y).map(|(j, _)| *j));
-                let to = over.and_then(|j| drop_target(&secs, from, j));
-                // A line where it will land, and the dragged row's title under the pointer.
-                if let (Some(to), Some(p)) = (to, pointer)
-                    && let Some((_, r)) = shown_rows.iter().find(|(j, _)| *j == to)
-                {
-                    let y = if to > from { r.max.y } else { r.min.y };
-                    ui.painter().hline(r.min.x + 6.0..=r.max.x - 6.0, y, Stroke::new(2.0, t.accent));
-                    if let Some(sec) = secs.get(from) {
-                        let layer = ui.painter().clone().with_layer_id(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("binder_drag")));
-                        let label: String = sec.title.chars().take(30).collect();
-                        let galley = layer.layout_no_wrap(label, medium(12.0), t.text);
-                        let br = Rect::from_min_size(p + vec2(12.0, -10.0), galley.size() + vec2(16.0, 8.0));
-                        layer.add(crate::tokens::popover_shape(br, 8, t));
-                        layer.galley(br.min + vec2(8.0, 4.0), galley, t.text);
-                    }
-                }
-                if dropped
-                    && let Some(to) = to
-                    && to != from
-                {
-                    let by = sibling_offset(&secs, from, to);
-                    if let (Some(sec), Some(by)) = (secs.get(from).cloned(), by) {
-                        crate::pro::move_section(g, &sec, by);
-                    }
-                } else if dropped && over.is_some() && to.is_none() {
-                    g.app.status("Sections move among the ones at the same level: drag it beside a sibling");
-                }
-            }
-        }
-        match action {
-            Some((i, 1)) => g.glass.scriv.quick = secs.get(i).map(|s| s.path.clone()),
-            Some((i, 2)) => {
-                go = Some(i);
-                g.glass.panel = Some(Panel::Inspector);
-            }
-            Some((i, _)) => go = Some(i),
-            None => {}
-        }
-        if let Some(s) = go.and_then(|i| secs.get(i)) {
-            go_to(g, s);
-        }
         ui.add_space(6.0);
         // Open documents.
         let mut switch: Option<usize> = None;
@@ -965,7 +1167,7 @@ pub fn binder(g: &mut GlassApp, ui: &mut Ui, t: &Tokens) {
     });
 }
 
-fn toggle_fold(g: &mut GlassApp, k: &str) {
+pub(crate) fn toggle_fold(g: &mut GlassApp, k: &str) {
     if !g.glass.scriv.folded.remove(k) {
         g.glass.scriv.folded.insert(k.to_string());
     }

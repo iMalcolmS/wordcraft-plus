@@ -163,8 +163,11 @@ the **Research** tab:
   DOI link and whether the bibliography lists it.
 - **Citation check**: citations without a source, sources never cited, a missing bibliography,
   and claims with no citation ("studies show…", "segundo…", percentages), marked on the page.
-- **Sections** (the Binder, retractable) with **drag-and-drop** reordering, and a **Research
-  Scratchpad** for snippets, quotes and equations.
+- **Research Binder** (its own, not Writer Pro's; retractable): the paper's sections with word
+  counts and **drag-and-drop** reordering, the usual parts still missing (Abstract, Methods,
+  Results…, one click to add), Figures & Tables, Equations, Code (▶ to run), Sources (cited,
+  how often, and not cited), research Notes, Reviews (response logs with how many are done),
+  and a **Research Scratchpad** for snippets, quotes and equations.
 - **LaTeX and Markdown as you type**: `$…$` becomes an equation; `**bold**`, `*italic*`,
   `` `code` ``, `# ` headings and `> ` quotes. A **formula library** with a quick menu
   (`/eq-matriz`, `/eq-bayes`…); save any equation into it.
@@ -202,6 +205,7 @@ the **Research** tab:
 | ![Research Library](docs/glass/23-research-library.png) Research mode: the Library | ![Citation check](docs/glass/24-citation-check.png) Citation check, a claim marked on the page |
 | ![Argument map](docs/glass/25-argument-map.png) Argument map | ![Code block](docs/glass/26-code-block.png) A Python block run in the document |
 | ![Submit](docs/glass/27-submit.png) Blind review, LaTeX package, compile | ![Academic templates](docs/glass/28-academic-templates.png) Academic templates |
+| ![Research Binder](docs/glass/29-research-binder.png) The Research Binder | |
 
 ## Build and run
 

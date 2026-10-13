@@ -25,6 +25,7 @@ pub mod goals;
 pub mod graphs;
 pub mod inline;
 pub mod project;
+pub mod rbinder;
 pub mod refs;
 pub mod research;
 pub mod reviews;

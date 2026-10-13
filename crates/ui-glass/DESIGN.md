@@ -254,6 +254,10 @@ the preferences (they are not written into the .docx).
 - A mode like Writer Pro (`prefs.research`), with its own toolbar pill, Home card and **Research**
   ribbon tab (`ribbon::RESEARCH`, Glass's own big buttons). Its panels are `Panel::Research(RView)`
   in the side dock; the Binder and Scratchpad are shared with Writer Pro.
+- The Binder in Research mode is `src/rbinder.rs` (unless Writer Pro is on and its Writer tab
+  is showing): Paper (sections with word counts, drag to reorder, missing usual parts folded
+  into one row), Figures & Tables, Equations, Code, Sources, Notes, Reviews, Scratchpad. It
+  shares the row drawing and the manuscript tree (`scriv::manuscript`) with Writer Pro's.
 - `src/refs.rs`: the reference model and readers (BibTeX, RIS, CSL-JSON, EndNote XML), the
   Library (`Documents/WordCraft/Library/library.json`, linked files, Zotero's local API).
   Citations are WordCraft's own `CITATION` fields, so Word and the bibliography styles work.
